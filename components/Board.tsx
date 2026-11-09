@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { getAssetUrls } from "@tldraw/assets/selfHosted";
 import { Tldraw, useEditor, useValue } from "tldraw";
 import { AiBlobShapeUtil } from "@/shapes/AiBlobShapeUtil";
 import { AskRegionShapeUtil } from "@/shapes/AskRegionShapeUtil";
@@ -24,6 +25,9 @@ declare global {
     getBoardContext?: () => BoardJson;
   }
 }
+
+/** Serve tldraw UI assets (icons, fonts, translations) from /public/tldraw — same origin, so Firefox allows the CSS-mask loads that cdn.tldraw.com would block. */
+const assetUrls = getAssetUrls({ baseUrl: "/tldraw/" });
 
 /** Board JSON / native snapshot downloads, in tldraw's top-right panel slot. */
 function ExportPanel() {
@@ -206,6 +210,7 @@ export default function Board() {
   return (
     <div className="ai-canvas-root">
       <Tldraw
+        assetUrls={assetUrls}
         persistenceKey="ai-canvas-v1"
         shapeUtils={[AskRegionShapeUtil, AiBlobShapeUtil]}
         tools={[AskTool]}
