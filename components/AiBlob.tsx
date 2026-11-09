@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { stopEventPropagation, useEditor } from "tldraw";
+import { Vec, stopEventPropagation, useEditor } from "tldraw";
 import { Markdown } from "@/components/Markdown";
 import { cancelAsk, retryAsk, sendQuestion } from "@/lib/stream";
 import { DEFAULT_QUESTION, QUICK_CHIPS } from "@/lib/chips";
@@ -214,9 +214,12 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
   };
 
   const submit = () => {
+    if (streaming) return;
     const text = draftRef.current.trim();
     if (!text) {
-      // Enter on an empty input is the one-keystroke explain.
+      // Empty Enter only means something while composing (addendum-2 3.2):
+      // a follow-up turn needs actual words.
+      if (!composing) return;
       send(DEFAULT_QUESTION, { hidden: true });
       return;
     }
@@ -233,33 +236,35 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
   };
 
   // tldraw listens for wheel natively on the canvas, so React's synthetic
-  // handlers are too late; stop it at the source instead (P1).
+  // handlers are too late; the card owns the wheel instead (addendum-2 3.1).
   useEffect(() => {
-    const body = bodyRef.current;
-    const footer = footerRef.current;
-    if (!body) return;
+    const card = cardRef.current;
+    if (!card) return;
 
-    const onBodyWheel = (event: WheelEvent) => {
-      const atTop = body.scrollTop <= 0;
-      const atBottom =
-        body.scrollTop + body.clientHeight >= body.scrollHeight - 1;
-      const stuck = (event.deltaY < 0 && atTop) || (event.deltaY > 0 && atBottom);
-      // Let pinch-zoom through only when the list cannot scroll further.
-      if (stuck && (event.ctrlKey || event.metaKey)) return;
+    const onWheel = (event: WheelEvent) => {
+      const pinching = event.ctrlKey || event.metaKey;
+      if (!pinching) {
+        // Plain wheel: the answer scrolls, the board never pans or zooms.
+        event.stopPropagation();
+        return;
+      }
+      // Ctrl/Cmd + wheel must never reach the browser's page-zoom handler;
+      // it zooms the board around the pointer instead.
+      event.preventDefault();
       event.stopPropagation();
-    };
-    const onFooterWheel = (event: WheelEvent) => {
-      if (event.ctrlKey || event.metaKey) return;
-      event.stopPropagation();
+      if (!event.deltaY) return;
+      const bounds = editor.getContainer().getBoundingClientRect();
+      const point = new Vec(
+        event.clientX - bounds.left,
+        event.clientY - bounds.top,
+      );
+      if (event.deltaY < 0) editor.zoomIn(point);
+      else editor.zoomOut(point);
     };
 
-    body.addEventListener("wheel", onBodyWheel, { passive: true });
-    footer?.addEventListener("wheel", onFooterWheel, { passive: true });
-    return () => {
-      body.removeEventListener("wheel", onBodyWheel);
-      footer?.removeEventListener("wheel", onFooterWheel);
-    };
-  }, [collapsed]);
+    card.addEventListener("wheel", onWheel, { passive: false });
+    return () => card.removeEventListener("wheel", onWheel);
+  }, [editor]);
 
   const stopAll = {
     onPointerDown: stopEventPropagation,
@@ -516,7 +521,7 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
               <button
                 type="submit"
                 aria-label="Send question"
-                disabled={streaming}
+                disabled={streaming || !draft.trim()}
                 className="ai-blob-send"
               >
                 <SendIcon />
