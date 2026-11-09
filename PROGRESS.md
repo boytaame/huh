@@ -1,7 +1,7 @@
 # PROGRESS
 
 ## Current branch
-session/a-interaction
+session/c-light-board
 
 ## Status of patches
 - addendum-1 P1: done — blob body/textarea isolate pointer, key, context-menu and paste events; body text selectable (inline `user-select: text`); header drags the card; wheel handled natively at the card.
@@ -15,9 +15,12 @@ session/a-interaction
 - addendum-2 3.3 (selectable text): done — inline `user-select: text`/`cursor: text` on the body, pointer events stopped inside it, drag only from the header.
 - addendum-2 3.5 (prompt/voice): done — no-recap rule, per-chip suffixes, language matching (already present). Length caps removed: no output-token limit and no word budget in the prompt.
 - bugfix (black canvas): done — a dark colour scheme tldraw had stored in the browser painted the board `#101011` under the light UI. The board is pinned to `light` on mount, so a stored preference can no longer produce it.
+- bugfix (native text drag): done — a `dragstart` inside a card is cancelled at the card (capture) and the body is non-draggable, so dragging an answer no longer drags the selection out instead of the card.
+- bugfix (stuck streaming after undo): done — a thread restored by undo with no live request returns to `idle` and drops its empty assistant placeholder.
 - addendum-2 resize (session C): done — native corner/edge resize clamped to 280–720px wide and 160px tall, `userSized`/`userHeight` props with migration `/2`, content auto-grows until a manual resize, header **Reset size** button, collapse restores the hand-picked height.
 
 ## Done this session
+- Full functional pass over the running app (ask/compose, chips, streaming, follow-up, send guards, Shift+Enter, More, selectable text, wheel ownership, soft wrap of the Light-only-board fix, resize/clamp/reset/collapse, anchoring, palette rotation, child threads, delete cascades + undo, Esc cancel, export JSON + snapshot, `getBoardContext`, title persistence, reload persistence). Found and fixed two defects: native text drag inside a card, and a thread restored by undo staying on "Thinking…" forever.
 - Audit of addendum-1 P1–P6 by reading the code and exercising the running app; this file created.
 - Session A: Ctrl+wheel no longer zooms the browser page (it zooms the board), plain wheel only scrolls the answer, empty/streaming sends blocked, selectable text re-verified, no-recap prompt rule, per-chip voice suffixes. Follow-up: dropped the 400-token cap and the prompt word budget because they truncated explanations.
 - Session C: resizable threads with a `userSized` flag and reset-size action.

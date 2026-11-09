@@ -105,9 +105,10 @@ body {
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 12px;
-  /* Body text is selectable and copyable. */
+  /* Body text is selectable and copyable, but never a native drag source. */
   user-select: text;
   -webkit-user-select: text;
+  -webkit-user-drag: none;
   cursor: text;
 }
 

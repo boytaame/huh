@@ -221,6 +221,11 @@ export function retryAsk(editor: Editor, blobId: TLShapeId): void {
   void streamAnswer(editor, blobId, payload);
 }
 
+/** True while a request is writing into this blob. */
+export function hasActiveStream(blobId: string): boolean {
+  return activeStreams.has(blobId);
+}
+
 /** Stop an in-flight request (used when the blob is deleted). */
 export function cancelAsk(blobId: string): void {
   activeStreams.get(blobId)?.abort();

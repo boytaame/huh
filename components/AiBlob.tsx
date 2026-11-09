@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Vec, stopEventPropagation, useEditor } from "tldraw";
 import { Markdown } from "@/components/Markdown";
-import { cancelAsk, retryAsk, sendQuestion } from "@/lib/stream";
+import {
+  cancelAsk,
+  hasActiveStream,
+  retryAsk,
+  sendQuestion,
+} from "@/lib/stream";
 import { DEFAULT_QUESTION, QUICK_CHIPS } from "@/lib/chips";
 import { firstLine, splitAnswer } from "@/lib/answer";
 import { threadColor } from "@/lib/threads";
@@ -308,9 +313,38 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
       else editor.zoomOut(point);
     };
 
+    // A native drag starting inside the card must never happen: the browser
+    // would drag the selected answer text (or a link) out of the shape instead
+    // of letting the header move the card. Capture phase, because the body's
+    // React handler alone only stops propagation and leaves the drag alive.
+    const onDragStart = (event: DragEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
     card.addEventListener("wheel", onWheel, { passive: false });
-    return () => card.removeEventListener("wheel", onWheel);
+    card.addEventListener("dragstart", onDragStart, true);
+    return () => {
+      card.removeEventListener("wheel", onWheel);
+      card.removeEventListener("dragstart", onDragStart, true);
+    };
   }, [editor]);
+
+  // A stream cannot outlive its request. Restoring a deleted thread with undo
+  // brings back `status: "streaming"` with no request behind it, which would
+  // leave the card stuck on "Thinking…" forever.
+  useEffect(() => {
+    if (status !== "streaming" || hasActiveStream(shape.id)) return;
+    const trimmed = messages.filter(
+      (message, index, all) =>
+        !(index === all.length - 1 && message.role === "assistant" && !message.content),
+    );
+    editor.updateShape<AiBlobShape>({
+      id: shape.id,
+      type: "ai-blob",
+      props: { status: "idle", messages: trimmed },
+    });
+  }, [editor, shape.id, status, messages]);
 
   const stopAll = {
     onPointerDown: stopEventPropagation,
@@ -433,6 +467,7 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
             onDoubleClick={stopEventPropagation}
             onContextMenu={stopEventPropagation}
             onDragStart={stopEventPropagation}
+            draggable={false}
           >
             <div ref={contentRef}>
               {messages.length === 0 && !composing && (
