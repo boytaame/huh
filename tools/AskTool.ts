@@ -1,5 +1,4 @@
 import {
-  Box,
   createShapeId,
   StateNode,
   Vec,
@@ -8,90 +7,12 @@ import {
   type TLPointerEventInfo,
   type TLShapeId,
 } from "tldraw";
-import { buildContext } from "@/lib/context";
-import { blobToDataUrl, downscaleImage } from "@/lib/image";
-import { overlapArea, rectArea, rectsIntersect, type Rect } from "@/lib/geometry";
+import { captureRegionImage } from "@/lib/capture";
+import { findAnchor, relativeTo, toRect } from "@/lib/anchoring";
+import { findBlobPosition } from "@/lib/placement";
+import { nextThreadColor, threadColor } from "@/lib/threads";
 import type { AiBlobShape, AskRegionShape } from "@/shapes/types";
-import {
-  AI_BLOB_INITIAL_HEIGHT,
-  AI_BLOB_WIDTH,
-  DEFAULT_QUESTION,
-} from "@/shapes/types";
-import { streamAnswer } from "@/lib/stream";
-
-const GAP = 80;
-
-function toRect(box: { x: number; y: number; w: number; h: number }): Rect {
-  return { x: box.x, y: box.y, w: box.w, h: box.h };
-}
-
-/** Topmost non-overlay shape under the selection (material or a parent blob). */
-function findParent(editor: Editor, bounds: Rect, excludeId: TLShapeId) {
-  const candidates = editor
-    .getCurrentPageShapesSorted()
-    .filter(
-      (shape) =>
-        shape.id !== excludeId &&
-        shape.type !== "arrow" &&
-        shape.type !== "ask-region",
-    );
-
-  const selectionArea = rectArea(bounds);
-  if (selectionArea <= 0) return null;
-
-  for (let index = candidates.length - 1; index >= 0; index -= 1) {
-    const pageBounds = editor.getShapePageBounds(candidates[index]);
-    if (!pageBounds) continue;
-    if (overlapArea(toRect(pageBounds), bounds) >= selectionArea * 0.4) {
-      return candidates[index];
-    }
-  }
-  return null;
-}
-
-/** Prefer the right side, avoid collisions, then try below/left/above. */
-function findBlobPosition(
-  editor: Editor,
-  region: Rect,
-  width: number,
-  height: number,
-): { x: number; y: number } {
-  const viewport = editor.getViewportPageBounds();
-  const candidates = [
-    { x: region.x + region.w + GAP, y: region.y },
-    { x: region.x + region.w + GAP, y: region.y + region.h + GAP },
-    { x: region.x, y: region.y + region.h + GAP },
-    { x: region.x - GAP - width, y: region.y },
-  ];
-
-  const obstacles = editor
-    .getCurrentPageShapes()
-    .filter((shape) => shape.type !== "arrow")
-    .flatMap((shape) => {
-      const bounds = editor.getShapePageBounds(shape);
-      return bounds ? [toRect(bounds)] : [];
-    });
-
-  const fits = (candidate: Rect) =>
-    obstacles.every((obstacle) => overlapArea(candidate, obstacle) === 0);
-
-  const visible = (candidate: Rect) =>
-    overlapArea(candidate, toRect(viewport)) >= rectArea(candidate) * 0.6;
-
-  const box = (candidate: { x: number; y: number }): Rect => ({
-    x: candidate.x,
-    y: candidate.y,
-    w: width,
-    h: height,
-  });
-
-  return (
-    candidates.find((candidate) => fits(box(candidate)) && visible(box(candidate))) ??
-    candidates.find((candidate) => fits(box(candidate))) ??
-    candidates.find((candidate) => visible(box(candidate))) ??
-    candidates[2]
-  );
-}
+import { AI_BLOB_INITIAL_HEIGHT, AI_BLOB_WIDTH } from "@/shapes/types";
 
 function createArrow(
   editor: Editor,
@@ -99,6 +20,7 @@ function createArrow(
   blobId: TLShapeId,
   region: { x: number; y: number; w: number; h: number },
   blobPosition: { x: number; y: number },
+  color: string,
 ) {
   const arrowId = createShapeId();
   const startX = region.x + region.w;
@@ -111,10 +33,13 @@ function createArrow(
     type: "arrow",
     x: startX,
     y: startY,
+    // Arrow bindings are gone by the time a delete handler runs, so the
+    // region/blob link lives on the arrow itself (spec-addendum-1 P5).
+    meta: { thread: { regionId, blobId } },
     props: {
       start: { x: 0, y: 0 },
       end: { x: endX - startX, y: endY - startY },
-      color: "black",
+      color: threadColor(color).arrow,
       arrowheadEnd: "arrow",
     },
   });
@@ -148,8 +73,9 @@ function createArrow(
 }
 
 /**
- * Creates the blob and arrow immediately, then captures the selection crop and
- * starts streaming the first answer.
+ * Release handler: anchor the region, capture its crop, create the blob in
+ * `composing` state and bind the arrow. **No LLM call happens here** — the
+ * answer only starts once the user sends a question or chip.
  */
 async function finalizeAsk(editor: Editor, regionId: TLShapeId): Promise<void> {
   const region = editor.getShape<AskRegionShape>(regionId);
@@ -157,12 +83,25 @@ async function finalizeAsk(editor: Editor, regionId: TLShapeId): Promise<void> {
   if (!region || !pageBounds) return;
 
   const bounds = toRect(pageBounds);
-  const parent = findParent(editor, bounds, regionId);
+  const anchor = findAnchor(editor, bounds, regionId);
+  const anchorBounds = anchor ? editor.getShapePageBounds(anchor) : undefined;
+  const rel = anchor && anchorBounds ? relativeTo(bounds, toRect(anchorBounds)) : null;
+
+  editor.updateShape<AskRegionShape>({
+    id: regionId,
+    type: "ask-region",
+    props: { anchorId: anchor?.id ?? null, rel },
+  });
+
+  // Capture now (at release time), not when the question is sent. The shape
+  // list is collected synchronously, so the blob and arrow are not in it.
+  const imagePromise = captureRegionImage(editor, regionId);
+
   const position = findBlobPosition(
     editor,
     bounds,
-    AI_BLOB_WIDTH,
-    AI_BLOB_INITIAL_HEIGHT,
+    { w: AI_BLOB_WIDTH, h: AI_BLOB_INITIAL_HEIGHT },
+    new Set([regionId]),
   );
 
   const blobId = createShapeId();
@@ -174,81 +113,39 @@ async function finalizeAsk(editor: Editor, regionId: TLShapeId): Promise<void> {
     props: {
       w: AI_BLOB_WIDTH,
       h: AI_BLOB_INITIAL_HEIGHT,
-      parentId: parent?.id ?? "",
+      parentId: anchor?.id ?? "",
       collapsed: false,
       messages: [],
-      status: "streaming",
+      status: "composing",
       regionImage: "",
       error: "",
+      offsetFromRegion: { x: position.x - bounds.x, y: position.y - bounds.y },
+      detached: false,
+      moreOpen: {},
+      color: region.props.color,
     },
   });
 
-  createArrow(editor, regionId, blobId, bounds, position);
+  createArrow(editor, regionId, blobId, bounds, position, region.props.color);
 
-  let image = "";
+  const image = await imagePromise;
+  if (!image) return;
 
-  try {
-    const captureShapes = editor.getCurrentPageShapes().filter((shape) => {
-      if (shape.id === regionId || shape.id === blobId) return false;
-      if (shape.type === "arrow" || shape.type === "ask-region") return false;
-      const shapeBounds = editor.getShapePageBounds(shape);
-      return shapeBounds
-        ? rectsIntersect(toRect(shapeBounds), bounds)
-        : false;
+  const regionStillThere = editor.getShape<AskRegionShape>(regionId);
+  if (regionStillThere) {
+    editor.updateShape<AskRegionShape>({
+      id: regionId,
+      type: "ask-region",
+      props: { imageDataUrl: image },
     });
-
-    if (captureShapes.length > 0) {
-      const { blob } = await editor.toImage(captureShapes, {
-        bounds: new Box(bounds.x, bounds.y, bounds.w, bounds.h),
-        format: "png",
-        background: true,
-        padding: 0,
-        pixelRatio: 2,
-      });
-      image = await downscaleImage(await blobToDataUrl(blob), 1600);
-
-      if (editor.getShape<AskRegionShape>(regionId)) {
-        editor.updateShape<AskRegionShape>({
-          id: regionId,
-          type: "ask-region",
-          props: { imageDataUrl: image },
-        });
-      }
-      if (editor.getShape<AiBlobShape>(blobId)) {
-        editor.updateShape<AiBlobShape>({
-          id: blobId,
-          type: "ai-blob",
-          props: { regionImage: image },
-        });
-      }
-    }
-  } catch (error) {
-    console.warn("[ask] could not capture the selection", error);
   }
-
-  const blob = editor.getShape<AiBlobShape>(blobId);
-  if (!blob) return;
-
-  const context = buildContext(editor, blobId);
-  const question = DEFAULT_QUESTION;
-
-  editor.updateShape<AiBlobShape>({
-    id: blobId,
-    type: "ai-blob",
-    props: {
-      messages: [{ role: "user", content: question }],
-      status: "streaming",
-      error: "",
-    },
-  });
-
-  void streamAnswer(editor, blobId, {
-    image: image || undefined,
-    question,
-    boardSummary: context.boardSummary,
-    ancestorContext: context.ancestorContext,
-    history: [],
-  });
+  if (editor.getShape<AiBlobShape>(blobId)) {
+    editor.updateShape<AiBlobShape>({
+      id: blobId,
+      type: "ai-blob",
+      props: { regionImage: image },
+    });
+  }
 }
 
 class AskIdle extends StateNode {
@@ -264,11 +161,13 @@ class AskDrawing extends StateNode {
 
   private origin = new Vec();
   private regionId: TLShapeId | null = null;
+  private color = "yellow";
   private moved = false;
 
   override onEnter() {
     this.origin = this.editor.inputs.currentPagePoint.clone();
     this.regionId = null;
+    this.color = nextThreadColor(this.editor);
     this.moved = false;
     this.editor.setCursor({ type: "cross", rotation: 0 });
   }
@@ -291,7 +190,14 @@ class AskDrawing extends StateNode {
         type: "ask-region",
         x,
         y,
-        props: { w, h, imageDataUrl: "" },
+        props: {
+          w,
+          h,
+          imageDataUrl: "",
+          anchorId: null,
+          rel: null,
+          color: this.color,
+        },
       });
     } else {
       this.editor.updateShape<AskRegionShape>({
@@ -333,7 +239,8 @@ class AskDrawing extends StateNode {
 
 /**
  * Ask tool: drag a rectangle over anything on the board. On release the region
- * becomes a persistent yellow selection with an AI thread attached to its right.
+ * becomes a persistent selection with an AI thread beside it, in composing
+ * state, waiting for a question or a quick chip.
  */
 export class AskTool extends StateNode {
   static override id = "ask";

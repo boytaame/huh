@@ -51,10 +51,13 @@ The key is read only inside `app/api/ask/route.ts` → `lib/llm.ts`. There is no
 ## Using the board
 
 - **Add material:** paste an image or text (`Ctrl+V`), drag an image file onto the board, or use tldraw's text tool.
-- **Ask:** click **Ask** (or press `A`), then drag a box over any part of the board. A yellow selection is created immediately, an AI thread appears to its right with an arrow bound to both, and the first explanation streams in.
+- **Ask:** click **Ask** (or press `A`), then drag a box over any part of the board. A coloured selection is anchored to what is underneath it, and a thread appears beside it — nothing is sent to the model yet.
+- **Write or tap a chip:** the new thread opens in a composing state with the cursor already in its input and five quick chips (*Why?*, *What's the rule?*, *Example?*, *Simpler*, *What next?*). Press `Enter` (or click a chip) to send; `Shift+Enter` adds a newline. `Esc`, or clicking empty canvas, cancels the thread.
+- **Read:** the answer leads with the exact step that was missing; extra detail sits behind **More ▾** so the first answer stays short. Collapsing a thread leaves its header and the first line. Answer text can be selected and copied, and the wheel scrolls the answer instead of zooming the board (the header still drags the whole card).
 - **Follow up:** type in the thread's input and press Enter. The answer streams into the same thread, with history kept.
 - **Branch:** box part of an AI answer with the Ask tool to create a child thread. The parent link is stored and included in prompts.
-- **Move things:** drag a selection or thread — arrows are bound and follow.
+- **Move things:** drag a selection or thread — the region stays anchored to its material, the thread keeps its offset, and the arrow follows. Resizing a selection re-anchors it to its material too.
+- **Delete:** the thread's trash button (or `Esc` while composing) removes the thread and its selection; deleting the selection keeps the thread as a detached card with a thumbnail of what it explained; deleting the arrow just detaches the card. Each is a single `Ctrl+Z` step, and child threads survive as detached cards.
 - **Export:** top-right **Export board JSON** downloads `board.json` (schema in `spec.md` §5.5). **Snapshot** downloads the native tldraw snapshot.
 - **Console:** `getBoardContext()` in DevTools returns the same board JSON.
 
@@ -108,6 +111,13 @@ lib/
   context.ts               budgeted prompt context
   stream.ts                client stream writer (survives pan/zoom)
   exportBoard.ts           board JSON + snapshot
+  anchoring.ts             keeps regions anchored (anchorId/rel) and blobs on offset
+  lifecycle.ts             delete cascade (blob/region/arrow → thread states)
+  threads.ts               palette + thread links
+  chips.ts                 quick chips and the default question
+  answer.ts                ---MORE--- split, first line, plain text
+  capture.ts               region PNG capture
+  placement.ts             collision-free blob placement
 ```
 
 ## Known limitations

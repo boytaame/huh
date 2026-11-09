@@ -1,6 +1,7 @@
 import type { Editor, TLShapeId } from "tldraw";
 import type { AiBlobShape, ChatMessage } from "@/shapes/types";
 import { buildContext } from "@/lib/context";
+import { DEFAULT_QUESTION } from "@/lib/chips";
 
 export type AskPayload = {
   image?: string;
@@ -153,13 +154,32 @@ export async function streamAnswer(
 
 /** Append a user turn to an existing thread and stream the reply. */
 export function askFollowUp(editor: Editor, blobId: TLShapeId, rawQuestion: string): void {
-  const question = rawQuestion.trim();
-  if (!question) return;
+  sendQuestion(editor, blobId, rawQuestion);
+}
+
+export type SendOptions = {
+  /** Chip label shown in the user's bubble instead of the prompt. */
+  label?: string;
+  /** Prompt sent on the user's behalf; kept out of the visible thread. */
+  hidden?: boolean;
+};
+
+/**
+ * Appends a user turn (a typed question, a chip, or the empty-input default)
+ * and streams the reply into the same blob.
+ */
+export function sendQuestion(
+  editor: Editor,
+  blobId: TLShapeId,
+  rawQuestion: string,
+  options: SendOptions = {},
+): void {
   if (activeStreams.has(blobId)) return;
 
   const shape = editor.getShape<AiBlobShape>(blobId);
   if (!shape) return;
 
+  const question = rawQuestion.trim() || DEFAULT_QUESTION;
   const context = buildContext(editor, blobId);
 
   let messages = shape.props.messages;
@@ -168,8 +188,12 @@ export function askFollowUp(editor: Editor, blobId: TLShapeId, rawQuestion: stri
     messages = messages.slice(0, -1);
   }
 
+  const userMessage: ChatMessage = { role: "user", content: question };
+  if (options.label) userMessage.label = options.label;
+  if (options.hidden) userMessage.hidden = true;
+
   patchBlob(editor, blobId, {
-    messages: [...messages, { role: "user", content: question }],
+    messages: [...messages, userMessage],
     status: "streaming",
     error: "",
   });

@@ -1,17 +1,8 @@
-import { BaseBoxShapeUtil, T } from "tldraw";
+import { BaseBoxShapeUtil, T, type TLPropsMigrations } from "tldraw";
 import { AiBlob } from "@/components/AiBlob";
 import type { AiBlobShape } from "@/shapes/types";
-
-/** Strip just enough markdown/LaTeX for a readable SVG fallback of the thread. */
-function plainText(content: string): string {
-  return content
-    .replace(/\$\$?/g, "")
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/[#*_`>]/g, "")
-    .replace(/\\[a-zA-Z]+\s*/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+import { AI_BLOB_INITIAL_HEIGHT, AI_BLOB_WIDTH } from "@/shapes/types";
+import { plainText, splitAnswer } from "@/lib/answer";
 
 function wrap(text: string, maxChars: number): string[] {
   const lines: string[] = [];
@@ -39,23 +30,56 @@ export class AiBlobShapeUtil extends BaseBoxShapeUtil<AiBlobShape> {
     parentId: T.string,
     collapsed: T.boolean,
     messages: T.arrayOf(
-      T.object({ role: T.literalEnum("user", "assistant"), content: T.string }),
+      T.object({
+        role: T.literalEnum("user", "assistant"),
+        content: T.string,
+        label: T.optional(T.string),
+        hidden: T.optional(T.boolean),
+      }),
     ),
-    status: T.literalEnum("idle", "streaming", "error"),
+    status: T.literalEnum("composing", "idle", "streaming", "error"),
     regionImage: T.string,
     error: T.string,
+    offsetFromRegion: T.nullable(T.object({ x: T.number, y: T.number })),
+    detached: T.boolean,
+    moreOpen: T.dict(T.string, T.boolean),
+    color: T.string,
+  };
+
+  /** Backfill props for blobs saved before spec-addendum-1. */
+  static override migrations: TLPropsMigrations = {
+    sequence: [
+      {
+        id: "com.tldraw.shape.ai-blob/1",
+        up: (props: Record<string, unknown>) => ({
+          error: "",
+          offsetFromRegion: null,
+          detached: false,
+          moreOpen: {},
+          color: "yellow",
+          // A stream cannot survive a reload; don't leave a blob spinning.
+          status: props.status === "streaming" ? "idle" : props.status,
+          ...props,
+        }),
+        down: "none",
+      },
+    ],
   };
 
   getDefaultProps(): AiBlobShape["props"] {
     return {
-      w: 400,
-      h: 170,
+      w: AI_BLOB_WIDTH,
+      h: AI_BLOB_INITIAL_HEIGHT,
       parentId: "",
       collapsed: false,
       messages: [],
-      status: "idle",
+      status: "composing",
       regionImage: "",
       error: "",
+      offsetFromRegion: null,
+      detached: false,
+      moreOpen: {},
+      color: "yellow",
     };
   }
 
@@ -86,11 +110,14 @@ export class AiBlobShapeUtil extends BaseBoxShapeUtil<AiBlobShape> {
    * approximation so a child selection over a blob still sees something useful.
    */
   override toSvg(shape: AiBlobShape) {
-    const lines = shape.props.messages
-      .slice(-4)
+    const messages = shape.props.collapsed
+      ? shape.props.messages.slice(-1)
+      : shape.props.messages.slice(-4);
+    const lines = messages
       .flatMap((message) => {
         const prefix = message.role === "user" ? "You: " : "AI: ";
-        return wrap(prefix + plainText(message.content), 46);
+        const { main } = splitAnswer(message.content);
+        return wrap(prefix + plainText(main), 46);
       })
       .slice(0, 22);
 

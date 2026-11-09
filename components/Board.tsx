@@ -16,6 +16,8 @@ import {
   getBoardContext,
   type BoardJson,
 } from "@/lib/exportBoard";
+import { installAnchoring } from "@/lib/anchoring";
+import { installDeleteCascade } from "@/lib/lifecycle";
 
 declare global {
   interface Window {
@@ -190,6 +192,13 @@ export default function Board() {
         }}
         onMount={(editor) => {
           window.getBoardContext = () => getBoardContext(editor, titleRef.current);
+          const disposeAnchoring = installAnchoring(editor);
+          const disposeCascade = installDeleteCascade(editor);
+          return () => {
+            disposeAnchoring();
+            disposeCascade();
+            delete window.getBoardContext;
+          };
         }}
       >
         <BoardChrome title={title} onTitleChange={handleTitleChange} />

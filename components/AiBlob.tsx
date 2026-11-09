@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { stopEventPropagation, useEditor } from "tldraw";
 import { Markdown } from "@/components/Markdown";
-import { askFollowUp, cancelAsk, retryAsk } from "@/lib/stream";
+import { cancelAsk, retryAsk, sendQuestion } from "@/lib/stream";
+import { DEFAULT_QUESTION, QUICK_CHIPS } from "@/lib/chips";
+import { firstLine, splitAnswer } from "@/lib/answer";
+import { threadColor } from "@/lib/threads";
 import {
+  AI_BLOB_COLLAPSED_EXTRA,
   AI_BLOB_HEADER_HEIGHT,
   AI_BLOB_MAX_BODY_HEIGHT,
   type AiBlobShape,
@@ -52,30 +56,57 @@ function TrashIcon() {
   );
 }
 
+function Typing() {
+  return (
+    <span className="ai-typing" aria-label="Thinking">
+      <span />
+      <span />
+      <span />
+    </span>
+  );
+}
+
 export function AiBlob({ shape }: { shape: AiBlobShape }) {
   const editor = useEditor();
   const [draft, setDraft] = useState("");
+  const draftRef = useRef("");
+  const cardRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const footerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const { messages, status, collapsed, error } = shape.props;
+  const { messages, status, collapsed, error, detached, moreOpen } = shape.props;
   const streaming = status === "streaming";
+  const composing = status === "composing";
+  const accent = threadColor(shape.props.color);
+  const showChips = !collapsed && messages.length === 0;
 
-  // Grow the blob with its content; cap the body and let it scroll internally.
+  const setDraftBoth = useCallback((value: string) => {
+    draftRef.current = value;
+    setDraft(value);
+  }, []);
+
+  // Grow with content; cap the body and let it scroll internally.
   useEffect(() => {
-    if (collapsed) return;
+    const header = headerRef.current;
     const content = contentRef.current;
     const footer = footerRef.current;
-    if (!content) return;
 
     const sync = () => {
-      const bodyHeight = Math.min(
-        AI_BLOB_MAX_BODY_HEIGHT,
-        content.offsetHeight + 24,
-      );
-      const next =
-        AI_BLOB_HEADER_HEIGHT + bodyHeight + (footer?.offsetHeight ?? 56);
+      const headerHeight = header?.offsetHeight ?? AI_BLOB_HEADER_HEIGHT;
+      let next: number;
+      if (collapsed) {
+        next = headerHeight + AI_BLOB_COLLAPSED_EXTRA;
+      } else {
+        if (!content) return;
+        const bodyHeight = Math.min(
+          AI_BLOB_MAX_BODY_HEIGHT,
+          content.offsetHeight + 24,
+        );
+        next = headerHeight + bodyHeight + (footer?.offsetHeight ?? 56);
+      }
       const current = editor.getShape<AiBlobShape>(shape.id);
       if (current && Math.abs(current.props.h - next) > 1) {
         editor.updateShape<AiBlobShape>({
@@ -88,59 +119,195 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
 
     sync();
     const observer = new ResizeObserver(sync);
-    observer.observe(content);
+    if (header) observer.observe(header);
+    if (content) observer.observe(content);
     if (footer) observer.observe(footer);
     return () => observer.disconnect();
-  }, [editor, shape.id, collapsed]);
+  }, [editor, shape.id, collapsed, detached, status]);
 
+  // Follow the stream.
   useEffect(() => {
     if (!streaming) return;
     const body = bodyRef.current;
     if (body) body.scrollTop = body.scrollHeight;
   }, [messages, streaming]);
 
+  // Focus the input when the thread is waiting for its first question.
+  useEffect(() => {
+    if (!composing || collapsed) return;
+    let frames = 0;
+    let frame = 0;
+    const focus = () => {
+      const input = inputRef.current;
+      if (!input) return;
+      input.focus({ preventScroll: true });
+      if (document.activeElement !== input && frames < 8) {
+        frames += 1;
+        frame = requestAnimationFrame(focus);
+      }
+    };
+    frame = requestAnimationFrame(focus);
+    return () => cancelAnimationFrame(frame);
+  }, [composing, collapsed]);
+
+  const cancelComposing = useCallback(() => {
+    cancelAsk(shape.id);
+    // Its own history step: the thread was often created in the same pending
+    // batch, and the cancel must still be undoable on its own (P3).
+    editor.markHistoryStoppingPoint("cancel-composing");
+    editor.run(() => editor.deleteShapes([shape.id]));
+  }, [editor, shape.id]);
+
+  // Esc cancels composing; an empty first question is abandoned, not sent.
+  useEffect(() => {
+    if (!composing) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      cancelComposing();
+    };
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (draftRef.current.trim()) return;
+      const card = cardRef.current;
+      if (card && event.target instanceof Node && card.contains(event.target)) {
+        return;
+      }
+      const point = editor.screenToPage({ x: event.clientX, y: event.clientY });
+      // Only cancel on empty canvas; clicking material should keep the thread.
+      if (editor.getShapeAtPoint(point, { hitInside: true })) return;
+      cancelComposing();
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("pointerdown", onPointerDown, true);
+    };
+  }, [composing, cancelComposing, editor]);
+
   const toggleCollapsed = () => {
-    if (collapsed) {
-      editor.updateShape<AiBlobShape>({
-        id: shape.id,
-        type: "ai-blob",
-        props: { collapsed: false, h: 220 },
-      });
-    } else {
-      editor.updateShape<AiBlobShape>({
-        id: shape.id,
-        type: "ai-blob",
-        props: { collapsed: true, h: AI_BLOB_HEADER_HEIGHT },
-      });
-    }
+    const headerHeight = headerRef.current?.offsetHeight ?? AI_BLOB_HEADER_HEIGHT;
+    editor.updateShape<AiBlobShape>({
+      id: shape.id,
+      type: "ai-blob",
+      props: collapsed
+        ? { collapsed: false }
+        : { collapsed: true, h: headerHeight + AI_BLOB_COLLAPSED_EXTRA },
+    });
   };
 
   const remove = () => {
     cancelAsk(shape.id);
-    editor.deleteShapes([shape.id]);
+    // Keep the blob → region → arrow cascade as a single undo step (P5).
+    editor.markHistoryStoppingPoint("delete-thread");
+    editor.run(() => editor.deleteShapes([shape.id]));
+  };
+
+  const send = (question: string, options?: { label?: string; hidden?: boolean }) => {
+    if (streaming) return;
+    setDraftBoth("");
+    sendQuestion(editor, shape.id, question, options);
   };
 
   const submit = () => {
-    const question = draft.trim();
-    if (!question || streaming) return;
-    setDraft("");
-    askFollowUp(editor, shape.id, question);
+    const text = draftRef.current.trim();
+    if (!text) {
+      // Enter on an empty input is the one-keystroke explain.
+      send(DEFAULT_QUESTION, { hidden: true });
+      return;
+    }
+    send(text);
   };
 
+  const toggleMore = (index: number) => {
+    const next = { ...moreOpen, [index]: !moreOpen[index] };
+    editor.updateShape<AiBlobShape>({
+      id: shape.id,
+      type: "ai-blob",
+      props: { moreOpen: next },
+    });
+  };
+
+  // tldraw listens for wheel natively on the canvas, so React's synthetic
+  // handlers are too late; stop it at the source instead (P1).
+  useEffect(() => {
+    const body = bodyRef.current;
+    const footer = footerRef.current;
+    if (!body) return;
+
+    const onBodyWheel = (event: WheelEvent) => {
+      const atTop = body.scrollTop <= 0;
+      const atBottom =
+        body.scrollTop + body.clientHeight >= body.scrollHeight - 1;
+      const stuck = (event.deltaY < 0 && atTop) || (event.deltaY > 0 && atBottom);
+      // Let pinch-zoom through only when the list cannot scroll further.
+      if (stuck && (event.ctrlKey || event.metaKey)) return;
+      event.stopPropagation();
+    };
+    const onFooterWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey) return;
+      event.stopPropagation();
+    };
+
+    body.addEventListener("wheel", onBodyWheel, { passive: true });
+    footer?.addEventListener("wheel", onFooterWheel, { passive: true });
+    return () => {
+      body.removeEventListener("wheel", onBodyWheel);
+      footer?.removeEventListener("wheel", onFooterWheel);
+    };
+  }, [collapsed]);
+
+  const stopAll = {
+    onPointerDown: stopEventPropagation,
+    onPointerUp: stopEventPropagation,
+    onClick: stopEventPropagation,
+    onDoubleClick: stopEventPropagation,
+    onContextMenu: stopEventPropagation,
+  };
+
+  const lastMessage = messages[messages.length - 1];
+  const collapsedPreview =
+    lastMessage && lastMessage.role === "assistant"
+      ? firstLine(lastMessage.content)
+      : lastMessage
+        ? lastMessage.label ?? firstLine(lastMessage.content)
+        : "Waiting for a question…";
+
   return (
-    <div className="ai-blob-card" style={{ height: shape.props.h }}>
-      <div className="ai-blob-header">
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+    <div
+      ref={cardRef}
+      className="ai-blob-card"
+      style={{
+        height: shape.props.h,
+        pointerEvents: "all",
+        borderColor: `${accent.accent}55`,
+      }}
+    >
+      <div
+        ref={headerRef}
+        className="ai-blob-header"
+        style={{ borderTop: `3px solid ${accent.accent}` }}
+      >
+        {detached && shape.props.regionImage ? (
+          <img
+            className="ai-blob-thumb"
+            src={shape.props.regionImage}
+            alt="Selected region"
+            draggable={false}
+          />
+        ) : null}
+        <span
+          className="h-1.5 w-1.5 shrink-0 rounded-full"
+          style={{ background: accent.accent }}
+        />
         <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
           AI
         </span>
-        {streaming && (
-          <span className="ai-typing" aria-label="Thinking">
-            <span />
-            <span />
-            <span />
-          </span>
-        )}
+        {streaming && <Typing />}
         {status === "error" && (
           <span className="text-[10px] font-medium uppercase tracking-wide text-red-500">
             error
@@ -151,9 +318,12 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
           type="button"
           title={collapsed ? "Expand" : "Collapse"}
           aria-label={collapsed ? "Expand" : "Collapse"}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900"
-          onPointerDown={stopEventPropagation}
-          onClick={toggleCollapsed}
+          className="ai-blob-icon-btn"
+          {...stopAll}
+          onClick={(event) => {
+            stopEventPropagation(event);
+            toggleCollapsed();
+          }}
         >
           <ChevronIcon up={collapsed} />
         </button>
@@ -161,100 +331,199 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
           type="button"
           title="Delete thread"
           aria-label="Delete thread"
-          className="flex h-6 w-6 items-center justify-center rounded-md text-neutral-500 transition hover:bg-red-50 hover:text-red-600"
-          onPointerDown={stopEventPropagation}
-          onClick={remove}
+          className="ai-blob-icon-btn ai-blob-icon-btn-danger"
+          {...stopAll}
+          onClick={(event) => {
+            stopEventPropagation(event);
+            remove();
+          }}
         >
           <TrashIcon />
         </button>
       </div>
 
-      {!collapsed && (
-        <div className="ai-blob-body" ref={bodyRef}>
-          <div ref={contentRef}>
-            {messages.length === 0 && streaming && (
-              <div className="text-xs text-neutral-500">Looking at your selection…</div>
-            )}
+      {collapsed ? (
+        <div
+          className="ai-blob-collapsed"
+          {...stopAll}
+          style={{ borderLeft: `3px solid ${accent.accent}` }}
+        >
+          <span className="truncate">{collapsedPreview}</span>
+        </div>
+      ) : (
+        <>
+          <div
+            ref={bodyRef}
+            className="ai-blob-body"
+            // Inline so no tldraw rule can make the answer unselectable (P1).
+            style={{
+              userSelect: "text",
+              WebkitUserSelect: "text",
+              cursor: "text",
+            }}
+            onPointerDown={stopEventPropagation}
+            onPointerUp={stopEventPropagation}
+            onPointerMove={stopEventPropagation}
+            onDoubleClick={stopEventPropagation}
+            onContextMenu={stopEventPropagation}
+            onDragStart={stopEventPropagation}
+          >
+            <div ref={contentRef}>
+              {messages.length === 0 && !composing && (
+                <div className="text-xs text-neutral-500">Ask about this part.</div>
+              )}
 
-            {messages.map((message, index) => {
-              if (message.role === "user") {
+              {messages.map((message, index) => {
+                if (message.role === "user") {
+                  if (message.hidden) return null;
+                  return (
+                    <div key={index} className="ai-msg ai-msg-user">
+                      {message.label ?? message.content}
+                    </div>
+                  );
+                }
+
+                const { main, more } = splitAnswer(message.content);
+                const isLast = index === messages.length - 1;
+                const open = Boolean(moreOpen[index]);
+
                 return (
-                  <div key={index} className="ai-msg ai-msg-user">
-                    {message.content}
+                  <div key={index} className="ai-msg ai-msg-assistant">
+                    {main ? (
+                      <Markdown>{main}</Markdown>
+                    ) : streaming && isLast ? (
+                      <Typing />
+                    ) : null}
+
+                    {more !== null && (
+                      <div className="ai-more">
+                        <button
+                          type="button"
+                          className="ai-more-toggle"
+                          {...stopAll}
+                          onClick={(event) => {
+                            stopEventPropagation(event);
+                            toggleMore(index);
+                          }}
+                        >
+                          {open ? "More ▴" : "More ▾"}
+                        </button>
+                        {open && (
+                          <div className="ai-more-body">
+                            <Markdown>{more}</Markdown>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {streaming && isLast && main ? <span className="ai-caret" /> : null}
                   </div>
                 );
-              }
-              const isLast = index === messages.length - 1;
-              return (
-                <div key={index} className="ai-msg ai-msg-assistant">
-                  {message.content ? (
-                    <Markdown>{message.content}</Markdown>
-                  ) : streaming && isLast ? (
-                    <span className="ai-typing" aria-label="Thinking">
-                      <span />
-                      <span />
-                      <span />
-                    </span>
-                  ) : null}
-                  {streaming && isLast && message.content ? (
-                    <span className="ai-caret" />
-                  ) : null}
-                </div>
-              );
-            })}
+              })}
 
-            {status === "error" && (
-              <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-2 text-[11.5px] leading-relaxed text-red-700">
-                <div className="font-medium">Couldn’t get an answer</div>
-                <div className="mt-0.5 break-words text-red-600/90">
-                  {error || "Unexpected error."}
+              {status === "error" && (
+                <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-2 text-[12px] leading-relaxed text-red-700">
+                  <div className="font-medium">Couldn’t get an answer</div>
+                  <div className="mt-0.5 break-words text-red-600/90">
+                    {error || "Unexpected error."}
+                  </div>
+                  <button
+                    type="button"
+                    className="mt-1.5 rounded border border-red-300 bg-white px-2 py-0.5 text-[11.5px] font-medium text-red-700 transition hover:bg-red-100"
+                    {...stopAll}
+                    onClick={(event) => {
+                      stopEventPropagation(event);
+                      retryAsk(editor, shape.id);
+                    }}
+                  >
+                    Retry
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  className="mt-1.5 rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] font-medium text-red-700 transition hover:bg-red-100"
-                  onPointerDown={stopEventPropagation}
-                  onClick={() => retryAsk(editor, shape.id)}
-                >
-                  Retry
-                </button>
+              )}
+            </div>
+          </div>
+
+          <div
+            ref={footerRef}
+            className="ai-blob-footer"
+            onPointerDown={stopEventPropagation}
+            onPointerUp={stopEventPropagation}
+            onPointerMove={stopEventPropagation}
+            onDoubleClick={stopEventPropagation}
+            onContextMenu={stopEventPropagation}
+          >
+            {showChips && (
+              <div className="ai-chips">
+                {QUICK_CHIPS.map((chip) => (
+                  <button
+                    key={chip.label}
+                    type="button"
+                    className="ai-chip"
+                    style={{ borderColor: `${accent.accent}66` }}
+                    {...stopAll}
+                    onClick={(event) => {
+                      stopEventPropagation(event);
+                      send(chip.prompt, { label: chip.label });
+                    }}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
               </div>
             )}
-          </div>
-        </div>
-      )}
 
-      {!collapsed && (
-        <div
-          ref={footerRef}
-          className="ai-blob-footer"
-          onPointerDown={stopEventPropagation}
-        >
-          <form
-            className="flex items-center gap-1.5"
-            onSubmit={(event) => {
-              event.preventDefault();
-              submit();
-            }}
-          >
-            <input
-              className="ai-blob-input"
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => event.stopPropagation()}
-              placeholder={streaming ? "Thinking…" : "Ask a follow-up…"}
-              disabled={streaming}
-              aria-label="Follow-up question"
-            />
-            <button
-              type="submit"
-              aria-label="Send follow-up"
-              disabled={streaming || !draft.trim()}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-neutral-900 text-white transition enabled:hover:bg-neutral-700 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400"
+            <form
+              className="flex items-end gap-1.5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                submit();
+              }}
             >
-              <SendIcon />
-            </button>
-          </form>
-        </div>
+              <textarea
+                ref={inputRef}
+                className="ai-blob-input"
+                rows={1}
+                value={draft}
+                onChange={(event) => setDraftBoth(event.target.value)}
+                onKeyDown={(event) => {
+                  stopEventPropagation(event);
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    submit();
+                  }
+                  if (event.key === "Escape" && composing) {
+                    event.preventDefault();
+                    cancelComposing();
+                  }
+                }}
+                onKeyUp={stopEventPropagation}
+                onKeyPress={stopEventPropagation}
+                onPointerDown={stopEventPropagation}
+                onPointerUp={stopEventPropagation}
+                onClick={stopEventPropagation}
+                onDoubleClick={stopEventPropagation}
+                onPaste={stopEventPropagation}
+                placeholder={
+                  streaming
+                    ? "Thinking…"
+                    : composing
+                      ? "Ask anything, or press Enter"
+                      : "Ask a follow-up…"
+                }
+                disabled={streaming}
+                aria-label="Question"
+              />
+              <button
+                type="submit"
+                aria-label="Send question"
+                disabled={streaming}
+                className="ai-blob-send"
+              >
+                <SendIcon />
+              </button>
+            </form>
+          </div>
+        </>
       )}
     </div>
   );
