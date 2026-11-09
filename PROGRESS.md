@@ -14,6 +14,7 @@ session/a-interaction
 - addendum-2 3.2 (empty/streaming send): done — send button disabled when the input is blank or a reply is streaming; empty Enter only acts while composing.
 - addendum-2 3.3 (selectable text): done — inline `user-select: text`/`cursor: text` on the body, pointer events stopped inside it, drag only from the header.
 - addendum-2 3.5 (prompt/voice): done — no-recap rule, per-chip suffixes, language matching (already present). Length caps removed: no output-token limit and no word budget in the prompt.
+- bugfix (black canvas): done — a dark colour scheme tldraw had stored in the browser painted the board `#101011` under the light UI. The board is pinned to `light` on mount, so a stored preference can no longer produce it.
 - addendum-2 resize (session C): done — native corner/edge resize clamped to 280–720px wide and 160px tall, `userSized`/`userHeight` props with migration `/2`, content auto-grows until a manual resize, header **Reset size** button, collapse restores the hand-picked height.
 
 ## Done this session

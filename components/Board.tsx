@@ -191,6 +191,13 @@ export default function Board() {
           SharePanel: ExportPanel,
         }}
         onMount={(editor) => {
+          // tldraw stores the user's colour scheme per browser, so a dark (or
+          // system-dark) scheme left a black board behind this app's light-only
+          // chrome. The board has no dark styling of its own, so pin it to light.
+          if (editor.user.getUserPreferences().colorScheme !== "light") {
+            editor.user.updateUserPreferences({ colorScheme: "light" });
+          }
+
           window.getBoardContext = () => getBoardContext(editor, titleRef.current);
           const disposeAnchoring = installAnchoring(editor);
           const disposeCascade = installDeleteCascade(editor);
