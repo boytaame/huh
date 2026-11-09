@@ -11,6 +11,8 @@ import {
   AI_BLOB_COLLAPSED_EXTRA,
   AI_BLOB_HEADER_HEIGHT,
   AI_BLOB_MAX_BODY_HEIGHT,
+  AI_BLOB_MIN_HEIGHT,
+  AI_BLOB_WIDTH,
   type AiBlobShape,
 } from "@/shapes/types";
 
@@ -35,6 +37,20 @@ function ChevronIcon({ up }: { up: boolean }) {
         d={up ? "M6 15l6-6 6 6" : "M6 9l6 6 6-6"}
         stroke="currentColor"
         strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ResetSizeIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4 9V4h5M20 15v5h-5M4 4l6 6M20 20l-6-6"
+        stroke="currentColor"
+        strokeWidth="1.8"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -100,6 +116,8 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
       if (collapsed) {
         next = headerHeight + AI_BLOB_COLLAPSED_EXTRA;
       } else {
+        // After a manual resize the card keeps its size and scrolls (addendum-2 §4).
+        if (shape.props.userSized) return;
         if (!content) return;
         const bodyHeight = Math.min(
           AI_BLOB_MAX_BODY_HEIGHT,
@@ -123,7 +141,7 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
     if (content) observer.observe(content);
     if (footer) observer.observe(footer);
     return () => observer.disconnect();
-  }, [editor, shape.id, collapsed, detached, status]);
+  }, [editor, shape.id, collapsed, detached, status, shape.props.userSized]);
 
   // Follow the stream.
   useEffect(() => {
@@ -191,12 +209,40 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
 
   const toggleCollapsed = () => {
     const headerHeight = headerRef.current?.offsetHeight ?? AI_BLOB_HEADER_HEIGHT;
+    if (collapsed) {
+      // A hand-sized card comes back at the height the user chose.
+      const restore =
+        shape.props.userSized && shape.props.userHeight > 0
+          ? shape.props.userHeight
+          : undefined;
+      editor.updateShape<AiBlobShape>({
+        id: shape.id,
+        type: "ai-blob",
+        props: restore
+          ? { collapsed: false, h: restore }
+          : { collapsed: false },
+      });
+      return;
+    }
     editor.updateShape<AiBlobShape>({
       id: shape.id,
       type: "ai-blob",
-      props: collapsed
-        ? { collapsed: false }
-        : { collapsed: true, h: headerHeight + AI_BLOB_COLLAPSED_EXTRA },
+      props: { collapsed: true, h: headerHeight + AI_BLOB_COLLAPSED_EXTRA },
+    });
+  };
+
+  /** Back to the default width with content-driven height. */
+  const resetSize = () => {
+    const headerHeight = headerRef.current?.offsetHeight ?? AI_BLOB_HEADER_HEIGHT;
+    editor.updateShape<AiBlobShape>({
+      id: shape.id,
+      type: "ai-blob",
+      props: {
+        userSized: false,
+        userHeight: 0,
+        w: AI_BLOB_WIDTH,
+        h: Math.max(AI_BLOB_MIN_HEIGHT, headerHeight + 120),
+      },
     });
   };
 
@@ -319,6 +365,21 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
           </span>
         )}
         <span className="flex-1" />
+        {shape.props.userSized && !collapsed ? (
+          <button
+            type="button"
+            title="Reset size"
+            aria-label="Reset size"
+            className="ai-blob-icon-btn"
+            {...stopAll}
+            onClick={(event) => {
+              stopEventPropagation(event);
+              resetSize();
+            }}
+          >
+            <ResetSizeIcon />
+          </button>
+        ) : null}
         <button
           type="button"
           title={collapsed ? "Expand" : "Collapse"}

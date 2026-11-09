@@ -1,7 +1,19 @@
-import { BaseBoxShapeUtil, T, type TLPropsMigrations } from "tldraw";
+import {
+  BaseBoxShapeUtil,
+  T,
+  resizeBox,
+  type TLPropsMigrations,
+  type TLResizeInfo,
+} from "tldraw";
 import { AiBlob } from "@/components/AiBlob";
 import type { AiBlobShape } from "@/shapes/types";
-import { AI_BLOB_INITIAL_HEIGHT, AI_BLOB_WIDTH } from "@/shapes/types";
+import {
+  AI_BLOB_INITIAL_HEIGHT,
+  AI_BLOB_MAX_WIDTH,
+  AI_BLOB_MIN_HEIGHT,
+  AI_BLOB_MIN_WIDTH,
+  AI_BLOB_WIDTH,
+} from "@/shapes/types";
 import { plainText, splitAnswer } from "@/lib/answer";
 
 function wrap(text: string, maxChars: number): string[] {
@@ -44,6 +56,8 @@ export class AiBlobShapeUtil extends BaseBoxShapeUtil<AiBlobShape> {
     detached: T.boolean,
     moreOpen: T.dict(T.string, T.boolean),
     color: T.string,
+    userSized: T.boolean,
+    userHeight: T.number,
   };
 
   /** Backfill props for blobs saved before spec-addendum-1. */
@@ -59,6 +73,15 @@ export class AiBlobShapeUtil extends BaseBoxShapeUtil<AiBlobShape> {
           color: "yellow",
           // A stream cannot survive a reload; don't leave a blob spinning.
           status: props.status === "streaming" ? "idle" : props.status,
+          ...props,
+        }),
+        down: "none",
+      },
+      {
+        id: "com.tldraw.shape.ai-blob/2",
+        up: (props: Record<string, unknown>) => ({
+          userSized: false,
+          userHeight: 0,
           ...props,
         }),
         down: "none",
@@ -80,11 +103,27 @@ export class AiBlobShapeUtil extends BaseBoxShapeUtil<AiBlobShape> {
       detached: false,
       moreOpen: {},
       color: "yellow",
+      userSized: false,
+      userHeight: 0,
     };
   }
 
   override canResize(): boolean {
-    return false;
+    return true;
+  }
+
+  /** Corner/edge resize, clamped to the readable range (addendum-2 §4). */
+  override onResize(shape: AiBlobShape, info: TLResizeInfo<AiBlobShape>) {
+    const resized = resizeBox(shape, info);
+    const w = Math.min(
+      AI_BLOB_MAX_WIDTH,
+      Math.max(AI_BLOB_MIN_WIDTH, resized.props.w),
+    );
+    const h = Math.max(AI_BLOB_MIN_HEIGHT, resized.props.h);
+    return {
+      ...resized,
+      props: { ...resized.props, w, h, userSized: true, userHeight: h },
+    };
   }
 
   override canEdit(): boolean {
