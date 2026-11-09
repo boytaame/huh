@@ -57,6 +57,7 @@ The key is read only inside `app/api/ask/route.ts` → `lib/llm.ts`. There is no
 - **Follow up:** type in the thread's input and press Enter. The answer streams into the same thread, with history kept.
 - **Branch:** box part of an AI answer with the Ask tool to create a child thread. The parent link is stored and included in prompts.
 - **Move things:** drag a selection or thread — the region stays anchored to its material, the thread keeps its offset, and the arrow follows. Resizing a selection re-anchors it to its material too.
+- **Resize a thread:** drag any corner or edge. Cards grow with their answer until you resize one by hand; after that the card keeps your size and the answer scrolls inside it. Width stays between 280 and 720px, and a **Reset size** button in the header returns the card to the default width with content-driven height.
 - **Delete:** the thread's trash button (or `Esc` while composing) removes the thread and its selection; deleting the selection keeps the thread as a detached card with a thumbnail of what it explained; deleting the arrow just detaches the card. Each is a single `Ctrl+Z` step, and child threads survive as detached cards.
 - **Export:** top-right **Export board JSON** downloads `board.json` (schema in `spec.md` §5.5). **Snapshot** downloads the native tldraw snapshot.
 - **Console:** `getBoardContext()` in DevTools returns the same board JSON.

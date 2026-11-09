@@ -10,19 +10,23 @@ export const QUICK_CHIPS = [
   },
   {
     label: "Why?",
-    prompt: "Why is this step valid? What rule or reasoning justifies it? Only give the reason this step is valid, nothing else.",
+    prompt:
+      "Why is this step valid? Only give the reason this step is valid, nothing else.",
   },
   {
     label: "Simpler",
-    prompt: "Explain this in simpler terms, as if I'm new to it. Use everyday words and an analogy if it helps. No jargon.",
+    prompt:
+      "Explain this in simpler terms. Use everyday words and an analogy if it helps. No jargon.",
   },
   {
     label: "Example",
-    prompt: "Show a small, concrete example of this idea.",
+    prompt:
+      "Show a small, concrete example of this idea. Only give one small worked example with real numbers.",
   },
   {
     label: "Check my work",
-    prompt: "Check whether this step is correct and point out any mistake. Say first whether its correct (yes/no), then point to the exact mistake if any.",
+    prompt:
+      "Check whether this step is correct. Say first whether it's correct (yes/no), then point to the exact mistake if any.",
   },
 ] as const;
 

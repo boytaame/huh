@@ -23,6 +23,7 @@ export const SYSTEM_PROMPT = `You are a tutor embedded in a whiteboard. The user
   - For "why does this work" questions, prefer one tiny example with real numbers over abstract explanation.
   - Total visible answer: max ~80 words plus math. If more detail truly helps, put it after a line containing only ---MORE---.
   - No greetings, no summaries, no "hope this helps", no offers to explain more.
+  - Do not end with a recap of the result or a concluding sentence. Stop after the last explanatory step.
   - Use LaTeX: inline $...$ and block $$...$$.
   - If you're unsure what they mean, ask ONE short clarifying question instead of guessing.`;
 
@@ -183,7 +184,7 @@ export async function streamLLM(request: LLMRequest): Promise<ReadableStream<Uin
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: request.system }] },
           contents,
-          generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
+          generationConfig: { temperature: 0.3, maxOutputTokens: 400 },
         }),
       },
     );
@@ -231,7 +232,7 @@ export async function streamLLM(request: LLMRequest): Promise<ReadableStream<Uin
       },
       body: JSON.stringify({
         model,
-        max_tokens: 2048,
+        max_tokens: 400,
         temperature: 0.3,
         system: request.system,
         stream: true,
@@ -277,7 +278,7 @@ export async function streamLLM(request: LLMRequest): Promise<ReadableStream<Uin
     body: JSON.stringify({
       model,
       temperature: 0.3,
-      max_tokens: 2048,
+      max_tokens: 400,
       stream: true,
       messages,
     }),

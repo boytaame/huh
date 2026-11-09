@@ -46,6 +46,10 @@ export type AiBlobProps = {
   moreOpen: Record<string, boolean>;
   /** Thread palette id shared with the region/arrow. */
   color: string;
+  /** True once the card was resized by hand; stops auto-height growth. */
+  userSized: boolean;
+  /** Height to restore when a hand-sized card is expanded again (0 = none). */
+  userHeight: number;
 };
 
 // tldraw 5 requires custom shapes to be registered so they become part of the
@@ -64,6 +68,9 @@ export type AskRegionShape = TLBaseShape<"ask-region", AskRegionProps>;
 export type AiBlobShape = TLBaseShape<"ai-blob", AiBlobProps>;
 
 export const AI_BLOB_WIDTH = 400;
+export const AI_BLOB_MIN_WIDTH = 280;
+export const AI_BLOB_MIN_HEIGHT = 160;
+export const AI_BLOB_MAX_WIDTH = 720;
 export const AI_BLOB_HEADER_HEIGHT = 40;
 export const AI_BLOB_DETACHED_HEADER_HEIGHT = 68;
 export const AI_BLOB_MAX_BODY_HEIGHT = 600;
