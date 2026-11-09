@@ -169,6 +169,30 @@ function BoardChrome({
   );
 }
 
+/**
+ * The app's chrome is light-only, so a dark colour scheme — stored by tldraw in
+ * this browser, resolved from the OS when the scheme is "system", or pushed in
+ * by another tab — paints the board black behind white UI. Watch the resolved
+ * mode rather than pinning once on mount: the OS listener and tldraw's
+ * cross-tab broadcasts can both turn the board dark after the editor starts.
+ */
+function ForceLightBoard() {
+  const editor = useEditor();
+  const isDark = useValue(
+    "board-is-dark",
+    () => editor.user.getIsDarkMode(),
+    [editor],
+  );
+
+  useEffect(() => {
+    if (isDark) {
+      editor.user.updateUserPreferences({ colorScheme: "light" });
+    }
+  }, [editor, isDark]);
+
+  return null;
+}
+
 export default function Board() {
   const [title, setTitle] = useState(() => loadBoardTitle());
   const titleRef = useRef(title);
@@ -191,13 +215,6 @@ export default function Board() {
           SharePanel: ExportPanel,
         }}
         onMount={(editor) => {
-          // tldraw stores the user's colour scheme per browser, so a dark (or
-          // system-dark) scheme left a black board behind this app's light-only
-          // chrome. The board has no dark styling of its own, so pin it to light.
-          if (editor.user.getUserPreferences().colorScheme !== "light") {
-            editor.user.updateUserPreferences({ colorScheme: "light" });
-          }
-
           window.getBoardContext = () => getBoardContext(editor, titleRef.current);
           const disposeAnchoring = installAnchoring(editor);
           const disposeCascade = installDeleteCascade(editor);
@@ -208,6 +225,7 @@ export default function Board() {
           };
         }}
       >
+        <ForceLightBoard />
         <BoardChrome title={title} onTitleChange={handleTitleChange} />
       </Tldraw>
     </div>
