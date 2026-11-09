@@ -38,6 +38,37 @@ export type LLMRequest = {
   history: LLMMessage[];
 };
 
+/** Explicit provider credentials — used for bring-your-own-key requests. */
+export type LLMConfig = {
+  provider: LLMProvider;
+  apiKey: string;
+  model?: string;
+};
+
+export type LLMOptions = {
+  /** Overrides the server-side env config (BYOK path). */
+  config?: LLMConfig;
+  signal?: AbortSignal;
+};
+
+/**
+ * Build the context text sent before the image/question. Shared by the server
+ * route and the browser BYOK path so both produce identical prompts.
+ */
+export function assembleContext(
+  boardSummary: string,
+  ancestorContext: string,
+  hasImage: boolean,
+): string {
+  return [
+    `## Board summary\n${boardSummary || "(empty board)"}`,
+    `## Where this selection sits\n${ancestorContext || "(no additional context)"}`,
+    hasImage
+      ? "## Selected region\nThe attached image is the exact region the user boxed on the board."
+      : "## Selected region\nNo image was captured for this selection; rely on the context above.",
+  ].join("\n\n");
+}
+
 function getConfig() {
   const provider = (process.env.LLM_PROVIDER ?? "gemini").trim().toLowerCase();
   if (!(provider in DEFAULT_MODELS)) {
@@ -147,8 +178,13 @@ function sseToText(
 }
 
 /** Stream a completion from the configured provider. */
-export async function streamLLM(request: LLMRequest): Promise<ReadableStream<Uint8Array>> {
-  const { provider, apiKey, model } = getConfig();
+export async function streamLLM(
+  request: LLMRequest,
+  options: LLMOptions = {},
+): Promise<ReadableStream<Uint8Array>> {
+  const config = options.config ?? getConfig();
+  const { provider, apiKey } = config;
+  const model = config.model?.trim() || DEFAULT_MODELS[provider];
   const history = normalizeHistory(request.history);
   const image = request.image ? parseDataUrl(request.image) : null;
 
@@ -186,6 +222,7 @@ export async function streamLLM(request: LLMRequest): Promise<ReadableStream<Uin
           contents,
           generationConfig: { temperature: 0.3 },
         }),
+        signal: options.signal,
       },
     );
     await assertOk(response, "Gemini");
@@ -229,6 +266,8 @@ export async function streamLLM(request: LLMRequest): Promise<ReadableStream<Uin
         "Content-Type": "application/json",
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
+        // Lets the same code run browser-direct for BYOK requests.
+        "anthropic-dangerous-direct-browser-access": "true",
       },
       body: JSON.stringify({
         model,
@@ -239,6 +278,7 @@ export async function streamLLM(request: LLMRequest): Promise<ReadableStream<Uin
         stream: true,
         messages,
       }),
+      signal: options.signal,
     });
     await assertOk(response, "Anthropic");
     return sseToText(response, (event) => {
@@ -282,6 +322,7 @@ export async function streamLLM(request: LLMRequest): Promise<ReadableStream<Uin
       stream: true,
       messages,
     }),
+    signal: options.signal,
   });
   await assertOk(response, "OpenAI");
   return sseToText(response, (event) => {

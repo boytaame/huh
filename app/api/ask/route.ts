@@ -1,4 +1,4 @@
-import { SYSTEM_PROMPT, streamLLM, type LLMMessage } from "@/lib/llm";
+import { SYSTEM_PROMPT, assembleContext, streamLLM, type LLMMessage } from "@/lib/llm";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -46,13 +46,7 @@ export async function POST(request: Request): Promise<Response> {
   const ancestorContext =
     typeof payload.ancestorContext === "string" ? payload.ancestorContext.slice(0, 6000) : "";
 
-  const context = [
-    `## Board summary\n${boardSummary || "(empty board)"}`,
-    `## Where this selection sits\n${ancestorContext || "(no additional context)"}`,
-    image
-      ? "## Selected region\nThe attached image is the exact region the user boxed on the board."
-      : "## Selected region\nNo image was captured for this selection; rely on the context above.",
-  ].join("\n\n");
+  const context = assembleContext(boardSummary, ancestorContext, !!image);
 
   try {
     const stream = await streamLLM({

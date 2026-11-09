@@ -1,5 +1,7 @@
 import type { Editor, TLShapeId } from "tldraw";
 import type { AiBlobShape, ChatMessage } from "@/shapes/types";
+import { SYSTEM_PROMPT, assembleContext, streamLLM } from "@/lib/llm";
+import { getByokConfig } from "@/lib/byok";
 import { buildContext } from "@/lib/context";
 import { DEFAULT_QUESTION } from "@/lib/chips";
 
@@ -97,17 +99,36 @@ export async function streamAnswer(
   };
 
   try {
-    const response = await fetch("/api/ask", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
+    let body: ReadableStream<Uint8Array> | null = null;
 
-    if (!response.ok) throw new Error(await readErrorMessage(response));
-    if (!response.body) throw new Error("The AI response had no body.");
+    // BYOK: with a user key, the browser calls the provider directly and the
+    // app's server is not involved at all.
+    const byok = getByokConfig();
+    if (byok) {
+      body = await streamLLM(
+        {
+          system: SYSTEM_PROMPT,
+          context: assembleContext(payload.boardSummary, payload.ancestorContext, !!payload.image),
+          question: payload.question,
+          image: payload.image,
+          history: payload.history,
+        },
+        { config: byok, signal: controller.signal },
+      );
+    } else {
+      const response = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(await readErrorMessage(response));
+      body = response.body;
+    }
 
-    const reader = response.body.getReader();
+    if (!body) throw new Error("The AI response had no body.");
+
+    const reader = body.getReader();
     const decoder = new TextDecoder();
 
     while (true) {

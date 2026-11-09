@@ -19,6 +19,7 @@ import {
 } from "@/lib/exportBoard";
 import { installAnchoring } from "@/lib/anchoring";
 import { installDeleteCascade } from "@/lib/lifecycle";
+import { ByokPanel } from "@/components/ByokPanel";
 
 declare global {
   interface Window {
@@ -52,6 +53,16 @@ function ExportPanel() {
       >
         Snapshot
       </button>
+    </div>
+  );
+}
+
+/** Top-right SharePanel slot: BYOK key box next to the export buttons. */
+function SharePanelComposite() {
+  return (
+    <div className="flex items-center gap-2">
+      <ByokPanel />
+      <ExportPanel />
     </div>
   );
 }
@@ -218,7 +229,7 @@ export default function Board() {
         components={{
           MainMenu: null,
           PageMenu: null,
-          SharePanel: ExportPanel,
+          SharePanel: SharePanelComposite,
         }}
         onMount={(editor) => {
           window.getBoardContext = () => getBoardContext(editor, titleRef.current);
