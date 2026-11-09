@@ -211,6 +211,7 @@ export default function Board() {
     <div className="ai-canvas-root">
       <Tldraw
         assetUrls={assetUrls}
+        licenseKey={process.env.NEXT_PUBLIC_TLDRAW_LICENSE_KEY}
         persistenceKey="ai-canvas-v1"
         shapeUtils={[AskRegionShapeUtil, AiBlobShapeUtil]}
         tools={[AskTool]}
