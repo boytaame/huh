@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getAssetUrls } from "@tldraw/assets/selfHosted";
-import { Tldraw, useEditor, useValue } from "tldraw";
+import { Tldraw, useEditor, useValue, stopEventPropagation } from "tldraw";
 import { AiBlobShapeUtil } from "@/shapes/AiBlobShapeUtil";
 import { AskRegionShapeUtil } from "@/shapes/AskRegionShapeUtil";
 import { AskTool } from "@/tools/AskTool";
@@ -60,7 +60,12 @@ function ExportPanel() {
 /** Top-right SharePanel slot: BYOK key box next to the export buttons. */
 function SharePanelComposite() {
   return (
-    <div className="flex items-center gap-2">
+    // tldraw's UI layer sets pointer-events:none; re-enable it for custom
+    // panel content, and stop tldraw's editor from treating taps as canvas input.
+    <div
+      className="pointer-events-auto flex items-center gap-2"
+      onPointerDown={stopEventPropagation}
+    >
       <ByokPanel />
       <ExportPanel />
     </div>
