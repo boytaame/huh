@@ -13,12 +13,12 @@ session/a-interaction
 - addendum-2 3.1 (Ctrl+wheel): done — card-level non-passive wheel listener; Ctrl/Cmd+wheel preventDefaults and zooms the board at the pointer, plain wheel only scrolls the answer.
 - addendum-2 3.2 (empty/streaming send): done — send button disabled when the input is blank or a reply is streaming; empty Enter only acts while composing.
 - addendum-2 3.3 (selectable text): done — inline `user-select: text`/`cursor: text` on the body, pointer events stopped inside it, drag only from the header.
-- addendum-2 3.5 (prompt/voice): done — no-recap rule, per-chip suffixes, 400-token cap, language matching (already present).
+- addendum-2 3.5 (prompt/voice): done — no-recap rule, per-chip suffixes, language matching (already present). Length caps removed: no output-token limit and no word budget in the prompt.
 - addendum-2 resize (session C): done — native corner/edge resize clamped to 280–720px wide and 160px tall, `userSized`/`userHeight` props with migration `/2`, content auto-grows until a manual resize, header **Reset size** button, collapse restores the hand-picked height.
 
 ## Done this session
 - Audit of addendum-1 P1–P6 by reading the code and exercising the running app; this file created.
-- Session A: Ctrl+wheel no longer zooms the browser page (it zooms the board), plain wheel only scrolls the answer, empty/streaming sends blocked, selectable text re-verified, no-recap prompt rule, per-chip voice suffixes, 400-token cap.
+- Session A: Ctrl+wheel no longer zooms the browser page (it zooms the board), plain wheel only scrolls the answer, empty/streaming sends blocked, selectable text re-verified, no-recap prompt rule, per-chip voice suffixes. Follow-up: dropped the 400-token cap and the prompt word budget because they truncated explanations.
 - Session C: resizable threads with a `userSized` flag and reset-size action.
 
 ## Half-done / blocked

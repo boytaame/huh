@@ -21,7 +21,7 @@ export const SYSTEM_PROMPT = `You are a tutor embedded in a whiteboard. The user
   - Then THE FIX: the key step(s) as short math lines. Every step gets a short "because" in plain words.
   - If a symbol or term might be new, explain it in a few words the first time.
   - For "why does this work" questions, prefer one tiny example with real numbers over abstract explanation.
-  - Total visible answer: max ~80 words plus math. If more detail truly helps, put it after a line containing only ---MORE---.
+  - If more detail truly helps, put it after a line containing only ---MORE---.
   - No greetings, no summaries, no "hope this helps", no offers to explain more.
   - Do not end with a recap of the result or a concluding sentence. Stop after the last explanatory step.
   - Use LaTeX: inline $...$ and block $$...$$.
@@ -184,7 +184,7 @@ export async function streamLLM(request: LLMRequest): Promise<ReadableStream<Uin
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: request.system }] },
           contents,
-          generationConfig: { temperature: 0.3, maxOutputTokens: 400 },
+          generationConfig: { temperature: 0.3 },
         }),
       },
     );
@@ -232,7 +232,8 @@ export async function streamLLM(request: LLMRequest): Promise<ReadableStream<Uin
       },
       body: JSON.stringify({
         model,
-        max_tokens: 400,
+        // Anthropic requires max_tokens; set far above any real answer so it never truncates.
+        max_tokens: 8192,
         temperature: 0.3,
         system: request.system,
         stream: true,
@@ -278,7 +279,6 @@ export async function streamLLM(request: LLMRequest): Promise<ReadableStream<Uin
     body: JSON.stringify({
       model,
       temperature: 0.3,
-      max_tokens: 400,
       stream: true,
       messages,
     }),
