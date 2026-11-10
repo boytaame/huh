@@ -12,6 +12,7 @@ import {
 import { DEFAULT_QUESTION, QUICK_CHIPS } from "@/lib/chips";
 import { firstLine, splitAnswer } from "@/lib/answer";
 import { threadColor } from "@/lib/threads";
+import { sendFeedback } from "@/lib/feedback";
 import {
   AI_BLOB_COLLAPSED_EXTRA,
   AI_BLOB_HEADER_HEIGHT,
@@ -19,7 +20,10 @@ import {
   AI_BLOB_MIN_HEIGHT,
   AI_BLOB_WIDTH,
   type AiBlobShape,
+  type ChatMessage,
 } from "@/shapes/types";
+
+const FEEDBACK_REASONS = ["Wrong", "Too long", "Didn't help", "Wrong language"] as const;
 
 function SendIcon() {
   return (
@@ -77,6 +81,27 @@ function TrashIcon() {
   );
 }
 
+function ThumbIcon({ down }: { down: boolean }) {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      style={down ? { transform: "rotate(180deg)" } : undefined}
+    >
+      <path
+        d="M7 10v11H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h3Zm0 0 4.2-7.4A1.6 1.6 0 0 1 14 3.4l.6 5.1H19a2 2 0 0 1 2 2.4l-1.2 7A2.8 2.8 0 0 1 17 20H7"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function Typing() {
   return (
     <span className="ai-typing" aria-label="Thinking">
@@ -90,6 +115,9 @@ function Typing() {
 export function AiBlob({ shape }: { shape: AiBlobShape }) {
   const editor = useEditor();
   const [draft, setDraft] = useState("");
+  const [downForm, setDownForm] = useState<number | null>(null);
+  const [downReason, setDownReason] = useState("");
+  const [downComment, setDownComment] = useState("");
   const draftRef = useRef("");
   const cardRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -275,6 +303,96 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
       return;
     }
     send(text);
+  };
+
+  const patchMessage = (index: number, props: Partial<ChatMessage>) => {
+    const current = editor.getShape<AiBlobShape>(shape.id);
+    if (!current) return;
+    const next = current.props.messages.map((message, at) =>
+      at === index ? { ...message, ...props } : message,
+    );
+    editor.updateShape<AiBlobShape>({
+      id: shape.id,
+      type: "ai-blob",
+      props: { messages: next },
+    });
+  };
+
+  const postFeedback = (
+    index: number,
+    rating: "up" | "down",
+    reason?: string,
+    comment?: string,
+  ) => {
+    const message = messages[index];
+    if (!message || message.role !== "assistant") return;
+
+    let question = "";
+    for (let at = index - 1; at >= 0; at -= 1) {
+      if (messages[at].role === "user") {
+        question = messages[at].content;
+        break;
+      }
+    }
+
+    void sendFeedback({
+      messageId: `${shape.id}:${index}`,
+      rating,
+      reason,
+      comment,
+      answer: message.content,
+      question,
+      ts: new Date().toISOString(),
+    });
+  };
+
+  const rateUp = (index: number) => {
+    if (messages[index]?.feedback === "up") {
+      patchMessage(index, {
+        feedback: undefined,
+        feedbackReason: undefined,
+        feedbackComment: undefined,
+      });
+      return;
+    }
+    patchMessage(index, {
+      feedback: "up",
+      feedbackReason: undefined,
+      feedbackComment: undefined,
+    });
+    if (downForm === index) setDownForm(null);
+    postFeedback(index, "up");
+  };
+
+  const rateDown = (index: number) => {
+    const message = messages[index];
+    if (!message) return;
+
+    if (message.feedback === "down") {
+      patchMessage(index, {
+        feedback: undefined,
+        feedbackReason: undefined,
+        feedbackComment: undefined,
+      });
+      setDownForm(null);
+      return;
+    }
+
+    setDownForm(index);
+    setDownReason(message.feedbackReason ?? "");
+    setDownComment(message.feedbackComment ?? "");
+  };
+
+  const submitDown = (index: number) => {
+    if (!downReason) return;
+    const comment = downComment.trim();
+    patchMessage(index, {
+      feedback: "down",
+      feedbackReason: downReason,
+      feedbackComment: comment || undefined,
+    });
+    setDownForm(null);
+    postFeedback(index, "down", downReason, comment || undefined);
   };
 
   const toggleMore = (index: number) => {
@@ -518,6 +636,100 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
                     )}
 
                     {streaming && isLast && main ? <span className="ai-caret" /> : null}
+
+                    {message.content.trim() && !(streaming && isLast) ? (
+                      <div className="ai-feedback">
+                        <button
+                          type="button"
+                          title="Good answer"
+                          aria-label="Good answer"
+                          aria-pressed={message.feedback === "up"}
+                          className={`ai-feedback-btn${message.feedback === "up" ? " ai-feedback-btn-up" : ""}`}
+                          {...stopAll}
+                          onClick={(event) => {
+                            stopEventPropagation(event);
+                            rateUp(index);
+                          }}
+                        >
+                          <ThumbIcon down={false} />
+                        </button>
+                        <button
+                          type="button"
+                          title="Bad answer"
+                          aria-label="Bad answer"
+                          aria-pressed={message.feedback === "down"}
+                          className={`ai-feedback-btn${message.feedback === "down" ? " ai-feedback-btn-down" : ""}`}
+                          {...stopAll}
+                          onClick={(event) => {
+                            stopEventPropagation(event);
+                            rateDown(index);
+                          }}
+                        >
+                          <ThumbIcon down />
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {downForm === index ? (
+                      <div className="ai-feedback-form">
+                        <div className="ai-feedback-reasons">
+                          {FEEDBACK_REASONS.map((reason) => (
+                            <button
+                              key={reason}
+                              type="button"
+                              className={`ai-feedback-reason${
+                                downReason === reason ? " ai-feedback-reason-on" : ""
+                              }`}
+                              {...stopAll}
+                              onClick={(event) => {
+                                stopEventPropagation(event);
+                                setDownReason((current) =>
+                                  current === reason ? "" : reason,
+                                );
+                              }}
+                            >
+                              {reason}
+                            </button>
+                          ))}
+                        </div>
+                        <textarea
+                          className="ai-feedback-comment"
+                          rows={2}
+                          maxLength={300}
+                          value={downComment}
+                          placeholder="Anything else? (optional)"
+                          onChange={(event) => setDownComment(event.target.value)}
+                          onPointerDown={stopEventPropagation}
+                          onKeyDown={stopEventPropagation}
+                          onPaste={stopEventPropagation}
+                        />
+                        <div className="ai-feedback-actions">
+                          <button
+                            type="button"
+                            disabled={!downReason}
+                            className="ai-feedback-send"
+                            {...stopAll}
+                            onClick={(event) => {
+                              stopEventPropagation(event);
+                              submitDown(index);
+                            }}
+                          >
+                            Send
+                          </button>
+                          <button
+                            type="button"
+                            className="ai-feedback-cancel"
+                            {...stopAll}
+                            onClick={(event) => {
+                              stopEventPropagation(event);
+                              setDownForm(null);
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}

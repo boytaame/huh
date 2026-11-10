@@ -1,5 +1,5 @@
 import { Ratelimit } from "@upstash/ratelimit";
-import { Redis } from "@upstash/redis";
+import { getRedis, hasUpstash } from "@/lib/upstash";
 
 /**
  * Server-side limits for the hosted LLM path (spec-addendum-3 D1).
@@ -65,32 +65,16 @@ function memoryLimit(key: string, limit: number, windowMs: number): RateLimitRes
 
 // ---------- Upstash ----------
 
-let redis: Redis | null = null;
 const limiters = new Map<string, Ratelimit>();
-
-function hasUpstash(): boolean {
-  return Boolean(
-    process.env.UPSTASH_REDIS_REST_URL?.trim() &&
-      process.env.UPSTASH_REDIS_REST_TOKEN?.trim(),
-  );
-}
-
-function getRedis(): Redis {
-  if (!redis) {
-    redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL!.trim(),
-      token: process.env.UPSTASH_REDIS_REST_TOKEN!.trim(),
-    });
-  }
-  return redis;
-}
 
 function getLimiter(name: string, limit: number, windowSeconds: number): Ratelimit {
   const key = `${name}:${limit}:${windowSeconds}`;
   const existing = limiters.get(key);
   if (existing) return existing;
+  const redis = getRedis();
+  if (!redis) throw new Error("Upstash Redis is not configured.");
   const limiter = new Ratelimit({
-    redis: getRedis(),
+    redis,
     limiter: Ratelimit.slidingWindow(limit, `${windowSeconds} s`),
     prefix: `huh:${name}`,
     analytics: false,
@@ -177,6 +161,7 @@ async function takeGlobalSlot(cap: number): Promise<RateLimitResult> {
   try {
     const key = `huh:ask:global:${day}`;
     const client = getRedis();
+    if (!client) throw new Error("Upstash Redis is not configured.");
     const count = await client.incr(key);
     if (count === 1) await client.expire(key, DAY_SECONDS * 2);
     if (count > cap) return { ok: false, error: "daily_cap", retryAfterSec };
