@@ -1,7 +1,35 @@
 # PROGRESS
 
 ## Current branch
-session/c-light-board
+session/d-launch-hardening (branched from the latest `main`; `master` is also present in this repo and was not touched)
+
+## Session D status (spec-addendum-3)
+
+- **D1: done** (9398814) — `/api/ask` validates body size, image type/decoded size, question, board summary, ancestor context and history before the provider is called; per-client cookie (`huh_cid`), per-IP burst/daily and global UTC-day cap on Upstash Redis with an in-memory fallback and one warning; `max_tokens = 400` enforced in `lib/llm.ts`; uniform `{ error, message, retryAfterSec }` failures.
+- **D2: done** (d432f89) — every failure maps to a short inline message with Retry; 30s first-token `AbortController`; delete aborts the request; partial answers keep `(cut off)`; empty responses are errors; no thread is left `streaming`; board error boundary with Reload + snapshot download.
+- **D3: done** (5a2a4e7; card/help UI in ed937e9) — empty-board hint, dismissible first-run card with `huh.onboarded`, bundled sample SVG loaded as a normal image shape, Ask tooltip, help popover with shortcuts/legal links, composing “AI can be wrong” note. First successful answer retires the card.
+- **D4: done** (24f3e7b) — 👍/👎 on every assistant message, 👎 quick reasons + optional note, persisted on the message; `POST /api/feedback` (no image, no IP, 60/day per client) and token-only `GET /api/feedback` (last 200; 401 otherwise); `PROMPT_VERSION` in `lib/llm.ts`.
+- **D5: done** (ed937e9) — `lib/analytics.ts` no-ops without `NEXT_PUBLIC_POSTHOG_KEY` or with DNT; all listed events wired with enum/number props only; no user content leaves the app via analytics.
+- **D6: done** (b818405) — `/privacy` and `/terms` plain-English drafts with a visible DRAFT marker, UU PDP note, env contact email; linked from the help popover and first-run card.
+- **D7: done** (e246616 + final docs commit) — complete `.env.example`, Node runtime + `maxDuration` on both API routes, tldraw key wired, noindex metadata, security headers, Deploy section + owner checklist in `README.md`. `npm run build` passes (7 pages, both API routes dynamic). Sentry intentionally skipped (SDK not installed; env placeholders reserved).
+
+### Verified this session
+- `npx tsc --noEmit` and `npm run build` pass.
+- 11 rapid asks from one IP → 11th `429 rate_limited` with `retryAfterSec`.
+- `GLOBAL_DAILY_ASK_CAP=2` → 3rd ask `429 daily_cap`.
+- ~10 MB image payload → `413 too_large` without calling the provider.
+- No Upstash env → app works with one fallback warning; feedback logs one JSON line.
+- Feedback: 200 with valid body, 401 without/with a wrong admin token, 429 after the per-client limit.
+- `/privacy` and `/terms` return 200 with the DRAFT marker and `noindex, nofollow`.
+- LLM key absent from `.next/static`, `git grep` at HEAD, and never tracked as `.env.local`.
+
+### Not yet automated (needs a manual browser pass)
+- Offline toggle → offline message → Retry with no duplicate bubble.
+- Killing the dev server mid-stream → `(cut off)` + Retry.
+- Deleting a streaming blob and watching the Network tab.
+- Forced component crash → error boundary + snapshot file.
+- PostHog Live Events with a real key; “no requests” with DNT / no key.
+- “Try a sample” + press `A` and box step 3 in a fresh profile.
 
 ## Status of patches
 - addendum-1 P1: done — blob body/textarea isolate pointer, key, context-menu and paste events; body text selectable (inline `user-select: text`); header drags the card; wheel handled natively at the card.
@@ -29,8 +57,9 @@ session/c-light-board
 - Nothing.
 
 ## Next up (in order)
-1. User testing on `session/a-interaction`, then merge into `master` (`git switch master && git merge --no-ff session/a-interaction`).
-2. Optional: "Auto-explain on select" setting (still explicitly optional in addendum-1).
+1. Manual browser pass on `session/d-launch-hardening` (the list above), then merge it yourself (`git switch master && git merge --no-ff session/d-launch-hardening`). Do not have the agent merge it.
+2. Owner checklist in `README.md` (Upstash, spend cap, PostHog, tldraw license, legal drafts, `ADMIN_TOKEN`), then deploy on Vercel.
+3. Show 1–3 classmates with zero explanation and watch whether they find the Ask box alone.
 
 ## How to verify what's done
 1. `npm run dev`, open the board, drag a selection with the Ask tool: the thread opens composing, cursor in the input, five chips, nothing sent yet.
