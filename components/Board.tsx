@@ -24,6 +24,8 @@ import { ByokPanel } from "@/components/ByokPanel";
 declare global {
   interface Window {
     getBoardContext?: () => BoardJson;
+    /** Last-resort snapshot for the error boundary (D2). */
+    getHuhSnapshot?: () => unknown;
   }
 }
 
@@ -238,12 +240,14 @@ export default function Board() {
         }}
         onMount={(editor) => {
           window.getBoardContext = () => getBoardContext(editor, titleRef.current);
+          window.getHuhSnapshot = () => editor.getSnapshot();
           const disposeAnchoring = installAnchoring(editor);
           const disposeCascade = installDeleteCascade(editor);
           return () => {
             disposeAnchoring();
             disposeCascade();
             delete window.getBoardContext;
+            delete window.getHuhSnapshot;
           };
         }}
       >

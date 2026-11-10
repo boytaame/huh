@@ -1,6 +1,7 @@
 import type { Editor, TLShapeId } from "tldraw";
 import type { AiBlobShape, AskRegionShape } from "@/shapes/types";
 import { arrowsForBlob, arrowsForRegion, threadLink } from "@/lib/threads";
+import { cancelAsk } from "@/lib/stream";
 
 /**
  * Delete rules (spec-addendum-1 P5):
@@ -41,6 +42,8 @@ export function installDeleteCascade(editor: Editor): () => void {
       if (shape.type === "ask-region") {
         arrowsByRegion.set(shape.id, arrowsForRegion(editor, shape.id));
       } else if (shape.type === "ai-blob") {
+        // Deleting a thread must not leave an orphan stream running (D2).
+        cancelAsk(shape.id);
         const arrows = arrowsForBlob(editor, shape.id);
         const regions = new Set<TLShapeId>();
         // Regions drawn over this blob (child threads)…

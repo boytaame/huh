@@ -225,6 +225,21 @@ body {
   cursor: not-allowed;
 }
 
+.ai-blob-note {
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #a3a3a3;
+  user-select: none;
+}
+
+.ai-cutoff {
+  margin-top: 3px;
+  font-size: 12px;
+  font-style: italic;
+  color: #a3a3a3;
+}
+
 /* "More" collapsible detail (spec-addendum-1 P2) */
 
 .ai-more {

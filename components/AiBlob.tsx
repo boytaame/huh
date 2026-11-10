@@ -522,11 +522,17 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
                 );
               })}
 
+              {status === "error" &&
+              lastMessage?.role === "assistant" &&
+              lastMessage.content ? (
+                <div className="ai-cutoff">(cut off)</div>
+              ) : null}
+
               {status === "error" && (
                 <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-2 text-[12px] leading-relaxed text-red-700">
                   <div className="font-medium">Couldn’t get an answer</div>
                   <div className="mt-0.5 break-words text-red-600/90">
-                    {error || "Unexpected error."}
+                    {error || "Something went wrong. Try again."}
                   </div>
                   <button
                     type="button"
@@ -623,6 +629,12 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
                 <SendIcon />
               </button>
             </form>
+
+            {composing ? (
+              <div className="ai-blob-note">
+                AI can be wrong. Double-check important steps.
+              </div>
+            ) : null}
           </div>
         </>
       )}
