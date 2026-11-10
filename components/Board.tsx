@@ -121,7 +121,8 @@ function HelpPopover() {
   ];
 
   return (
-    <div ref={rootRef} className="pointer-events-auto absolute bottom-3 left-3">
+    // Offset from the left edge so it never covers tldraw's bottom-left zoom panel.
+    <div ref={rootRef} className="pointer-events-auto absolute bottom-3 left-20">
       {open ? (
         <div className="mb-2 w-[250px] rounded-xl border border-neutral-200 bg-white p-3 shadow-lg">
           <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400">
