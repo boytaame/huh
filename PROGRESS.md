@@ -31,6 +31,17 @@ session/d-launch-hardening (branched from the latest `main`; `master` is also pr
 - PostHog Live Events with a real key; “no requests” with DNT / no key.
 - “Try a sample” + press `A` and box step 3 in a fresh profile.
 
+### Owner todo (pending)
+- [ ] Create Upstash Redis (free) and set `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` in Vercel env.
+- [ ] Set a hard monthly spend cap in the LLM provider dashboard.
+- [ ] Create a PostHog project, set `NEXT_PUBLIC_POSTHOG_KEY`, and enable **Discard client IP data** in the project settings.
+- [ ] (Optional) Create a Sentry project and copy the DSN; the SDK is not wired up yet.
+- [ ] Check tldraw’s license terms/pricing; add `NEXT_PUBLIC_TLDRAW_LICENSE_KEY` if needed.
+- [ ] Review `/privacy` and `/terms` drafts; set a real `NEXT_PUBLIC_CONTACT_EMAIL`; check the UU PDP questions in `DECISIONS.md` with someone who knows the law.
+- [ ] Set `ADMIN_TOKEN` to a long random string and keep it out of the repo.
+- [ ] Deploy on Vercel; test on a phone browser and a second laptop.
+- [ ] (Later) add a domain.
+
 ## Status of patches
 - addendum-1 P1: done — blob body/textarea isolate pointer, key, context-menu and paste events; body text selectable (inline `user-select: text`); header drags the card; wheel handled natively at the card.
 - addendum-1 P2: done — gap-first prompt, `---MORE---` collapsed detail, default question stored hidden (no "Explain this part…" bubble).
