@@ -13,6 +13,7 @@ import { DEFAULT_QUESTION, QUICK_CHIPS } from "@/lib/chips";
 import { firstLine, splitAnswer } from "@/lib/answer";
 import { threadColor } from "@/lib/threads";
 import { sendFeedback } from "@/lib/feedback";
+import { track } from "@/lib/analytics";
 import {
   AI_BLOB_COLLAPSED_EXTRA,
   AI_BLOB_HEADER_HEIGHT,
@@ -202,6 +203,7 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
   }, [composing, collapsed]);
 
   const cancelComposing = useCallback(() => {
+    track("ask_cancelled");
     cancelAsk(shape.id);
     // Its own history step: the thread was often created in the same pending
     // batch, and the cancel must still be undoable on its own (P3).
@@ -241,6 +243,7 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
   }, [composing, cancelComposing, editor]);
 
   const toggleCollapsed = () => {
+    track("blob_collapsed", { collapsed: !collapsed });
     const headerHeight = headerRef.current?.offsetHeight ?? AI_BLOB_HEADER_HEIGHT;
     if (collapsed) {
       // A hand-sized card comes back at the height the user chose.
@@ -286,9 +289,22 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
     editor.run(() => editor.deleteShapes([shape.id]));
   };
 
-  const send = (question: string, options?: { label?: string; hidden?: boolean }) => {
+  const send = (
+    question: string,
+    options?: { label?: string; hidden?: boolean },
+    meta?: { via: "chip" | "custom" | "empty_enter"; chip?: string },
+  ) => {
     if (streaming) return;
     setDraftBoth("");
+
+    // Event props are enums only — never the question or the answer.
+    track("ask_sent", {
+      via: meta?.via ?? "custom",
+      ...(meta?.chip ? { chip: meta.chip } : {}),
+      isChild: Boolean(shape.props.parentId),
+    });
+    if (messages.length > 0) track("followup_sent");
+
     sendQuestion(editor, shape.id, question, options);
   };
 
@@ -299,10 +315,10 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
       // Empty Enter only means something while composing (addendum-2 3.2):
       // a follow-up turn needs actual words.
       if (!composing) return;
-      send(DEFAULT_QUESTION, { hidden: true });
+      send(DEFAULT_QUESTION, { hidden: true }, { via: "empty_enter" });
       return;
     }
-    send(text);
+    send(text, undefined, { via: "custom" });
   };
 
   const patchMessage = (index: number, props: Partial<ChatMessage>) => {
@@ -361,6 +377,7 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
       feedbackComment: undefined,
     });
     if (downForm === index) setDownForm(null);
+    track("feedback_given", { rating: "up" });
     postFeedback(index, "up");
   };
 
@@ -392,10 +409,12 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
       feedbackComment: comment || undefined,
     });
     setDownForm(null);
+    track("feedback_given", { rating: "down", reason: downReason });
     postFeedback(index, "down", downReason, comment || undefined);
   };
 
   const toggleMore = (index: number) => {
+    track("answer_more_toggled", { open: !moreOpen[index] });
     const next = { ...moreOpen, [index]: !moreOpen[index] };
     editor.updateShape<AiBlobShape>({
       id: shape.id,
@@ -782,7 +801,11 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
                     {...stopAll}
                     onClick={(event) => {
                       stopEventPropagation(event);
-                      send(chip.prompt, { label: chip.label });
+                      send(
+                        chip.prompt,
+                        { label: chip.label },
+                        { via: "chip", chip: chip.label },
+                      );
                     }}
                   >
                     {chip.label}

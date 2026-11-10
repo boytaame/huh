@@ -2,6 +2,7 @@ import type { Editor, TLShapeId } from "tldraw";
 import type { AiBlobShape, AskRegionShape } from "@/shapes/types";
 import { arrowsForBlob, arrowsForRegion, threadLink } from "@/lib/threads";
 import { cancelAsk } from "@/lib/stream";
+import { track } from "@/lib/analytics";
 
 /**
  * Delete rules (spec-addendum-1 P5):
@@ -68,6 +69,7 @@ export function installDeleteCascade(editor: Editor): () => void {
     "shape",
     (shape) => {
       if (shape.type === "ai-blob") {
+        track("blob_deleted");
         // Children of a deleted parent blob survive as detached blobs.
         for (const other of editor.getCurrentPageShapes()) {
           if (other.type !== "ai-blob") continue;
@@ -93,6 +95,7 @@ export function installDeleteCascade(editor: Editor): () => void {
       }
 
       if (shape.type === "ask-region") {
+        track("region_deleted");
         const arrows = (arrowsByRegion.get(shape.id) ?? []).filter((id) =>
           editor.getShape(id),
         );
@@ -102,6 +105,7 @@ export function installDeleteCascade(editor: Editor): () => void {
       }
 
       if (shape.type === "arrow") {
+        track("arrow_deleted");
         const link = threadLink(shape);
         if (link) detachBlob(editor, link.blobId);
       }

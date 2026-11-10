@@ -4,6 +4,8 @@ import { SYSTEM_PROMPT, assembleContext, streamLLM } from "@/lib/llm";
 import { getByokConfig } from "@/lib/byok";
 import { buildContext } from "@/lib/context";
 import { DEFAULT_QUESTION } from "@/lib/chips";
+import { markOnboarded } from "@/lib/onboarding";
+import { track } from "@/lib/analytics";
 
 export type AskPayload = {
   image?: string;
@@ -121,11 +123,15 @@ async function responseFailure(response: Response): Promise<AskError> {
 function markFailure(
   editor: Editor,
   blobId: TLShapeId,
+  code: string,
   message: string,
   keepPartial: boolean,
 ): void {
   const shape = editor.getShape<AiBlobShape>(blobId);
   if (!shape) return;
+
+  track("error_shown", { code });
+  if (code === "rate_limited") track("rate_limited");
 
   let messages = shape.props.messages;
   const last = messages[messages.length - 1];
@@ -253,16 +259,18 @@ export async function streamAnswer(
     accumulated += decoder.decode();
 
     if (!accumulated.trim()) {
-      markFailure(editor, blobId, friendlyErrorMessage("empty"), false);
+      markFailure(editor, blobId, "empty", friendlyErrorMessage("empty"), false);
       return;
     }
 
     flush();
     patchBlob(editor, blobId, { status: "idle", error: "" });
+    // The first real answer retires the first-run card for good (D3).
+    markOnboarded();
   } catch (error) {
     if (controller.signal.aborted) {
       if (!timedOut) return; // deleted, cancelled, or superseded
-      markFailure(editor, blobId, friendlyErrorMessage("timeout"), false);
+      markFailure(editor, blobId, "timeout", friendlyErrorMessage("timeout"), false);
       return;
     }
 
@@ -287,6 +295,7 @@ export async function streamAnswer(
     markFailure(
       editor,
       blobId,
+      failure.code,
       failure.message,
       accumulated.trim().length > 0,
     );

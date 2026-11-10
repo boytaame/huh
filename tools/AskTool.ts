@@ -13,6 +13,7 @@ import { findBlobPosition } from "@/lib/placement";
 import { nextThreadColor, threadColor } from "@/lib/threads";
 import type { AiBlobShape, AskRegionShape } from "@/shapes/types";
 import { AI_BLOB_INITIAL_HEIGHT, AI_BLOB_WIDTH } from "@/shapes/types";
+import { track } from "@/lib/analytics";
 
 function createArrow(
   editor: Editor,
@@ -81,6 +82,8 @@ async function finalizeAsk(editor: Editor, regionId: TLShapeId): Promise<void> {
   const region = editor.getShape<AskRegionShape>(regionId);
   const pageBounds = region ? editor.getShapePageBounds(region) : undefined;
   if (!region || !pageBounds) return;
+
+  track("ask_region_created");
 
   const bounds = toRect(pageBounds);
   const anchor = findAnchor(editor, bounds, regionId);
