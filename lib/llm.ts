@@ -1,5 +1,15 @@
 export type LLMMessage = { role: "user" | "assistant"; content: string };
 
+/** Bumped whenever the system prompt changes; sent with feedback (D4). */
+export const PROMPT_VERSION = "v2.2";
+
+/**
+ * Hard output cap enforced here, never trusted from the client (D1). Kept
+ * deliberately small: this is a cost-protection ceiling, and answers are
+ * meant to be short and gap-first anyway.
+ */
+export const MAX_OUTPUT_TOKENS = 400;
+
 export const DEFAULT_MODELS = {
   gemini: "gemini-3.6-flash",
   anthropic: "claude-haiku-4-5",
@@ -44,6 +54,26 @@ export type LLMConfig = {
   apiKey: string;
   model?: string;
 };
+
+/** Provider failures carry their HTTP status so the route can classify them. */
+export class LLMRequestError extends Error {
+  status: number | null;
+
+  constructor(message: string, status: number | null = null) {
+    super(message);
+    this.name = "LLMRequestError";
+    this.status = status;
+  }
+}
+
+/** Model label for feedback records; never throws. */
+export function serverModelName(): string {
+  const provider = (process.env.LLM_PROVIDER ?? "gemini").trim().toLowerCase();
+  const fallback = provider in DEFAULT_MODELS
+    ? DEFAULT_MODELS[provider as LLMProvider]
+    : "unknown";
+  return process.env.LLM_MODEL?.trim() || fallback;
+}
 
 export type LLMOptions = {
   /** Overrides the server-side env config (BYOK path). */
@@ -114,7 +144,7 @@ async function assertOk(response: Response, provider: string): Promise<void> {
   const body = (await response.text())
     .slice(0, 500)
     .replace(/key=[^&\s"]+/gi, "key=***");
-  throw new Error(`${provider} API error ${response.status}: ${body}`);
+  throw new LLMRequestError(`${provider} API error ${response.status}: ${body}`, response.status);
 }
 
 /**
@@ -220,7 +250,10 @@ export async function streamLLM(
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: request.system }] },
           contents,
-          generationConfig: { temperature: 0.3 },
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: MAX_OUTPUT_TOKENS,
+          },
         }),
         signal: options.signal,
       },
@@ -271,8 +304,8 @@ export async function streamLLM(
       },
       body: JSON.stringify({
         model,
-        // Anthropic requires max_tokens; set far above any real answer so it never truncates.
-        max_tokens: 8192,
+        // Server-enforced ceiling, independent of anything the client sends.
+        max_tokens: MAX_OUTPUT_TOKENS,
         temperature: 0.3,
         system: request.system,
         stream: true,
@@ -319,6 +352,7 @@ export async function streamLLM(
     body: JSON.stringify({
       model,
       temperature: 0.3,
+      max_tokens: MAX_OUTPUT_TOKENS,
       stream: true,
       messages,
     }),
