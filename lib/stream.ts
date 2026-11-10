@@ -56,9 +56,11 @@ export function friendlyErrorMessage(
     case "offline":
       return "You're offline. Reconnect and retry.";
     case "too_large":
-      return "That selection is too big or broken. Try a smaller box.";
+      // The server sends a specific human message: selection size, question
+      // length, or thread size. Prefer it over one generic line.
+      return fallback || "That selection is too big or broken. Try a smaller box.";
     case "bad_request":
-      return "That request didn't go through. Try a smaller box.";
+      return fallback || "That request didn't go through. Try a smaller box.";
     case "empty":
       return "Got nothing back. Try again.";
     case "cut_off":
