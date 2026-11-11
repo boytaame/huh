@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { BoardErrorBoundary } from "@/components/BoardErrorBoundary";
 
 // tldraw needs the DOM, so keep the board client-only.
 const Board = dynamic(() => import("./Board"), {
@@ -13,5 +14,9 @@ const Board = dynamic(() => import("./Board"), {
 });
 
 export default function BoardLoader() {
-  return <Board />;
+  return (
+    <BoardErrorBoundary>
+      <Board />
+    </BoardErrorBoundary>
+  );
 }

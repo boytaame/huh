@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="520" viewBox="0 0 680 520">
+  <rect width="680" height="520" fill="#ffffff"/>
+  <text x="40" y="52" font-family="ui-sans-serif, system-ui, sans-serif" font-size="22" font-weight="700" fill="#171717">
+    Solve for x
+  </text>
+  <text x="40" y="86" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="20" fill="#404040">
+    2(3x - 4) + 5 = 21
+  </text>
+
+  <rect x="30" y="126" width="620" height="58" rx="8" fill="#f8fafc"/>
+  <text x="40" y="147" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="600" fill="#737373">
+    Step 1 — expand the bracket
+  </text>
+  <text x="40" y="173" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="19" fill="#171717">
+    6x - 8 + 5 = 21
+  </text>
+
+  <rect x="30" y="196" width="620" height="58" rx="8" fill="#f8fafc"/>
+  <text x="40" y="217" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="600" fill="#737373">
+    Step 2 — combine the constants
+  </text>
+  <text x="40" y="243" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="19" fill="#171717">
+    6x - 3 = 21
+  </text>
+
+  <rect x="26" y="266" width="628" height="66" rx="8" fill="#fef3c7" stroke="#eab308" stroke-width="2" stroke-dasharray="7 5"/>
+  <text x="40" y="289" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="700" fill="#a16207">
+    Step 3 — add 3 to both sides
+  </text>
+  <text x="40" y="317" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="19" fill="#171717">
+    6x = 24
+  </text>
+
+  <rect x="30" y="344" width="620" height="58" rx="8" fill="#f8fafc"/>
+  <text x="40" y="365" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="600" fill="#737373">
+    Step 4 — divide both sides by 6
+  </text>
+  <text x="40" y="391" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="19" fill="#171717">
+    x = 4
+  </text>
+
+  <rect x="30" y="414" width="620" height="58" rx="8" fill="#f0fdf4"/>
+  <text x="40" y="435" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="600" fill="#15803d">
+    Step 5 — check: 2(3·4 - 4) + 5 = 16 + 5 = 21 ✓
+  </text>
+  <text x="40" y="460" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="17" fill="#166534">
+    Correct.
+  </text>
+
+  <text x="40" y="500" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" fill="#a3a3a3">
+    Try boxing the step you do not get.
+  </text>
+</svg>

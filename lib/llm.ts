@@ -1,5 +1,15 @@
 export type LLMMessage = { role: "user" | "assistant"; content: string };
 
+/** Bumped whenever the system prompt changes; sent with feedback (D4). */
+export const PROMPT_VERSION = "v2.2";
+
+/**
+ * Hard output cap enforced here, never trusted from the client (D1). Kept
+ * deliberately small: this is a cost-protection ceiling, and answers are
+ * meant to be short and gap-first anyway.
+ */
+export const MAX_OUTPUT_TOKENS = 400;
+
 export const DEFAULT_MODELS = {
   gemini: "gemini-3.6-flash",
   anthropic: "claude-haiku-4-5",
@@ -37,6 +47,57 @@ export type LLMRequest = {
   /** Messages before the current question. */
   history: LLMMessage[];
 };
+
+/** Explicit provider credentials — used for bring-your-own-key requests. */
+export type LLMConfig = {
+  provider: LLMProvider;
+  apiKey: string;
+  model?: string;
+};
+
+/** Provider failures carry their HTTP status so the route can classify them. */
+export class LLMRequestError extends Error {
+  status: number | null;
+
+  constructor(message: string, status: number | null = null) {
+    super(message);
+    this.name = "LLMRequestError";
+    this.status = status;
+  }
+}
+
+/** Model label for feedback records; never throws. */
+export function serverModelName(): string {
+  const provider = (process.env.LLM_PROVIDER ?? "gemini").trim().toLowerCase();
+  const fallback = provider in DEFAULT_MODELS
+    ? DEFAULT_MODELS[provider as LLMProvider]
+    : "unknown";
+  return process.env.LLM_MODEL?.trim() || fallback;
+}
+
+export type LLMOptions = {
+  /** Overrides the server-side env config (BYOK path). */
+  config?: LLMConfig;
+  signal?: AbortSignal;
+};
+
+/**
+ * Build the context text sent before the image/question. Shared by the server
+ * route and the browser BYOK path so both produce identical prompts.
+ */
+export function assembleContext(
+  boardSummary: string,
+  ancestorContext: string,
+  hasImage: boolean,
+): string {
+  return [
+    `## Board summary\n${boardSummary || "(empty board)"}`,
+    `## Where this selection sits\n${ancestorContext || "(no additional context)"}`,
+    hasImage
+      ? "## Selected region\nThe attached image is the exact region the user boxed on the board."
+      : "## Selected region\nNo image was captured for this selection; rely on the context above.",
+  ].join("\n\n");
+}
 
 function getConfig() {
   const provider = (process.env.LLM_PROVIDER ?? "gemini").trim().toLowerCase();
@@ -83,7 +144,7 @@ async function assertOk(response: Response, provider: string): Promise<void> {
   const body = (await response.text())
     .slice(0, 500)
     .replace(/key=[^&\s"]+/gi, "key=***");
-  throw new Error(`${provider} API error ${response.status}: ${body}`);
+  throw new LLMRequestError(`${provider} API error ${response.status}: ${body}`, response.status);
 }
 
 /**
@@ -147,8 +208,13 @@ function sseToText(
 }
 
 /** Stream a completion from the configured provider. */
-export async function streamLLM(request: LLMRequest): Promise<ReadableStream<Uint8Array>> {
-  const { provider, apiKey, model } = getConfig();
+export async function streamLLM(
+  request: LLMRequest,
+  options: LLMOptions = {},
+): Promise<ReadableStream<Uint8Array>> {
+  const config = options.config ?? getConfig();
+  const { provider, apiKey } = config;
+  const model = config.model?.trim() || DEFAULT_MODELS[provider];
   const history = normalizeHistory(request.history);
   const image = request.image ? parseDataUrl(request.image) : null;
 
@@ -184,8 +250,12 @@ export async function streamLLM(request: LLMRequest): Promise<ReadableStream<Uin
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: request.system }] },
           contents,
-          generationConfig: { temperature: 0.3 },
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: MAX_OUTPUT_TOKENS,
+          },
         }),
+        signal: options.signal,
       },
     );
     await assertOk(response, "Gemini");
@@ -229,16 +299,19 @@ export async function streamLLM(request: LLMRequest): Promise<ReadableStream<Uin
         "Content-Type": "application/json",
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
+        // Lets the same code run browser-direct for BYOK requests.
+        "anthropic-dangerous-direct-browser-access": "true",
       },
       body: JSON.stringify({
         model,
-        // Anthropic requires max_tokens; set far above any real answer so it never truncates.
-        max_tokens: 8192,
+        // Server-enforced ceiling, independent of anything the client sends.
+        max_tokens: MAX_OUTPUT_TOKENS,
         temperature: 0.3,
         system: request.system,
         stream: true,
         messages,
       }),
+      signal: options.signal,
     });
     await assertOk(response, "Anthropic");
     return sseToText(response, (event) => {
@@ -279,9 +352,11 @@ export async function streamLLM(request: LLMRequest): Promise<ReadableStream<Uin
     body: JSON.stringify({
       model,
       temperature: 0.3,
+      max_tokens: MAX_OUTPUT_TOKENS,
       stream: true,
       messages,
     }),
+    signal: options.signal,
   });
   await assertOk(response, "OpenAI");
   return sseToText(response, (event) => {

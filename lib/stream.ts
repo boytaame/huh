@@ -1,7 +1,11 @@
 import type { Editor, TLShapeId } from "tldraw";
 import type { AiBlobShape, ChatMessage } from "@/shapes/types";
+import { SYSTEM_PROMPT, assembleContext, streamLLM } from "@/lib/llm";
+import { getByokConfig } from "@/lib/byok";
 import { buildContext } from "@/lib/context";
 import { DEFAULT_QUESTION } from "@/lib/chips";
+import { markOnboarded } from "@/lib/onboarding";
+import { track } from "@/lib/analytics";
 
 export type AskPayload = {
   image?: string;
@@ -11,8 +15,66 @@ export type AskPayload = {
   history: ChatMessage[];
 };
 
+type FailureCode =
+  | "rate_limited"
+  | "daily_cap"
+  | "provider_error"
+  | "timeout"
+  | "too_large"
+  | "bad_request"
+  | "offline"
+  | "empty"
+  | "cut_off";
+
+class AskError extends Error {
+  code: FailureCode;
+  retryAfterSec: number;
+
+  constructor(code: FailureCode, message: string, retryAfterSec = 0) {
+    super(message);
+    this.name = "AskError";
+    this.code = code;
+    this.retryAfterSec = retryAfterSec;
+  }
+}
+
+/** Short, human copy for every failure (spec-addendum-3 D2). */
+export function friendlyErrorMessage(
+  code: string,
+  fallback = "",
+  retryAfterSec = 0,
+): string {
+  switch (code) {
+    case "rate_limited":
+      return `Slow down a sec, try again in ~${retryAfterSec || 60}s.`;
+    case "daily_cap":
+      return "Huh hit its daily limit. Back tomorrow.";
+    case "provider_error":
+      return "The AI is overloaded. Try again.";
+    case "timeout":
+      return "That took too long. Try again.";
+    case "offline":
+      return "You're offline. Reconnect and retry.";
+    case "too_large":
+      // The server sends a specific human message: selection size, question
+      // length, or thread size. Prefer it over one generic line.
+      return fallback || "That selection is too big or broken. Try a smaller box.";
+    case "bad_request":
+      return fallback || "That request didn't go through. Try a smaller box.";
+    case "empty":
+      return "Got nothing back. Try again.";
+    case "cut_off":
+      return "The answer got cut off. Try again.";
+    default:
+      return fallback || "Something went wrong. Try again.";
+  }
+}
+
 const activeStreams = new Map<string, AbortController>();
 const lastPayloads = new Map<string, AskPayload>();
+
+/** Abort if no token arrives within this window. */
+const FIRST_TOKEN_TIMEOUT_MS = 30_000;
 
 function patchBlob(
   editor: Editor,
@@ -29,24 +91,61 @@ function patchBlob(
   return { ...shape, props: { ...shape.props, ...props } };
 }
 
-function errorMessage(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message;
-  return "Something went wrong while contacting the AI.";
+async function responseFailure(response: Response): Promise<AskError> {
+  let body: { error?: unknown; message?: unknown; retryAfterSec?: unknown } = {};
+  try {
+    body = (await response.json()) as typeof body;
+  } catch {
+    // Non-JSON failures (a proxy error page) still get a friendly message.
+  }
+
+  const code =
+    typeof body.error === "string"
+      ? body.error
+      : response.status === 413
+        ? "too_large"
+        : response.status === 429
+          ? "rate_limited"
+          : "provider_error";
+  const retryAfterSec =
+    typeof body.retryAfterSec === "number" && body.retryAfterSec > 0
+      ? body.retryAfterSec
+      : response.status === 429
+        ? Number(response.headers.get("retry-after")) || 60
+        : 0;
+  const fallback = typeof body.message === "string" ? body.message : "";
+
+  return new AskError(
+    code as FailureCode,
+    friendlyErrorMessage(code, fallback, retryAfterSec),
+    retryAfterSec,
+  );
 }
 
-async function readErrorMessage(response: Response): Promise<string> {
-  const fallback = `Request failed (${response.status}).`;
-  try {
-    const text = await response.text();
-    try {
-      const json = JSON.parse(text) as { error?: string };
-      return json.error || fallback;
-    } catch {
-      return text.slice(0, 400) || fallback;
-    }
-  } catch {
-    return fallback;
+function markFailure(
+  editor: Editor,
+  blobId: TLShapeId,
+  code: string,
+  message: string,
+  keepPartial: boolean,
+): void {
+  const shape = editor.getShape<AiBlobShape>(blobId);
+  if (!shape) return;
+
+  track("error_shown", { code });
+  if (code === "rate_limited") track("rate_limited");
+
+  let messages = shape.props.messages;
+  const last = messages[messages.length - 1];
+  if (!keepPartial && last?.role === "assistant" && !last.content) {
+    messages = messages.slice(0, -1);
   }
+
+  patchBlob(editor, blobId, {
+    messages,
+    status: "error",
+    error: message,
+  });
 }
 
 /**
@@ -65,6 +164,12 @@ export async function streamAnswer(
   const controller = new AbortController();
   activeStreams.set(blobId, controller);
   lastPayloads.set(blobId, payload);
+
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, FIRST_TOKEN_TIMEOUT_MS);
 
   patchBlob(editor, blobId, {
     messages: [
@@ -97,22 +202,48 @@ export async function streamAnswer(
   };
 
   try {
-    const response = await fetch("/api/ask", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      throw new AskError("offline", friendlyErrorMessage("offline"));
+    }
 
-    if (!response.ok) throw new Error(await readErrorMessage(response));
-    if (!response.body) throw new Error("The AI response had no body.");
+    let body: ReadableStream<Uint8Array> | null = null;
 
-    const reader = response.body.getReader();
+    // BYOK: with a user key, the browser calls the provider directly and the
+    // app's server is not involved at all.
+    const byok = getByokConfig();
+    if (byok) {
+      body = await streamLLM(
+        {
+          system: SYSTEM_PROMPT,
+          context: assembleContext(payload.boardSummary, payload.ancestorContext, !!payload.image),
+          question: payload.question,
+          image: payload.image,
+          history: payload.history,
+        },
+        { config: byok, signal: controller.signal },
+      );
+    } else {
+      const response = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw await responseFailure(response);
+      body = response.body;
+    }
+
+    if (!body) throw new AskError("empty", friendlyErrorMessage("empty"));
+
+    const reader = body.getReader();
     const decoder = new TextDecoder();
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      // The 30s deadline only covers time-to-first-token.
+      clearTimeout(timeout);
+
       accumulated += decoder.decode(value, { stream: true });
 
       if (!editor.getShape<AiBlobShape>(blobId)) {
@@ -128,27 +259,53 @@ export async function streamAnswer(
     }
 
     accumulated += decoder.decode();
+
+    if (!accumulated.trim()) {
+      markFailure(editor, blobId, "empty", friendlyErrorMessage("empty"), false);
+      return;
+    }
+
     flush();
     patchBlob(editor, blobId, { status: "idle", error: "" });
+    // The first real answer retires the first-run card for good (D3).
+    markOnboarded();
   } catch (error) {
-    if (controller.signal.aborted) return;
+    if (controller.signal.aborted) {
+      if (!timedOut) return; // deleted, cancelled, or superseded
+      markFailure(editor, blobId, "timeout", friendlyErrorMessage("timeout"), false);
+      return;
+    }
 
     const shape = editor.getShape<AiBlobShape>(blobId);
     if (!shape) return;
 
-    // Drop an empty assistant placeholder but keep any partial answer.
-    const messages = shape.props.messages.filter(
-      (message, index, all) =>
-        !(index === all.length - 1 && message.role === "assistant" && !message.content),
-    );
+    let failure: AskError;
+    if (error instanceof AskError) {
+      failure = error;
+    } else if (
+      typeof navigator !== "undefined" &&
+      navigator.onLine === false
+    ) {
+      failure = new AskError("offline", friendlyErrorMessage("offline"));
+    } else if (error instanceof TypeError) {
+      failure = new AskError("offline", friendlyErrorMessage("offline"));
+    } else {
+      failure = new AskError("provider_error", friendlyErrorMessage("provider_error"));
+    }
 
-    patchBlob(editor, blobId, {
-      messages,
-      status: "error",
-      error: errorMessage(error),
-    });
+    // A cut-off answer keeps its partial text and gets the "(cut off)" line.
+    markFailure(
+      editor,
+      blobId,
+      failure.code,
+      failure.message,
+      accumulated.trim().length > 0,
+    );
   } finally {
-    activeStreams.delete(blobId);
+    clearTimeout(timeout);
+    if (activeStreams.get(blobId) === controller) {
+      activeStreams.delete(blobId);
+    }
   }
 }
 
@@ -174,7 +331,8 @@ export function sendQuestion(
   rawQuestion: string,
   options: SendOptions = {},
 ): void {
-  if (activeStreams.has(blobId)) return;
+  // A new send supersedes anything still streaming into this blob.
+  if (activeStreams.has(blobId)) cancelAsk(blobId);
 
   const shape = editor.getShape<AiBlobShape>(blobId);
   if (!shape) return;
@@ -207,18 +365,55 @@ export function sendQuestion(
   });
 }
 
-/** Re-send the last failed request. */
+/** Re-send the last failed request without duplicating the user bubble. */
 export function retryAsk(editor: Editor, blobId: TLShapeId): void {
-  const payload = lastPayloads.get(blobId);
   const shape = editor.getShape<AiBlobShape>(blobId);
-  if (!payload || !shape || activeStreams.has(blobId)) return;
+  if (!shape || activeStreams.has(blobId)) return;
+
+  let payload = lastPayloads.get(blobId);
+
+  if (!payload) {
+    // After a refresh the in-memory payload is gone; rebuild it from the
+    // thread's last real question and the cached crop.
+    let lastUserIndex = -1;
+    for (let index = shape.props.messages.length - 1; index >= 0; index -= 1) {
+      const message = shape.props.messages[index];
+      if (message.role === "user") {
+        lastUserIndex = index;
+        break;
+      }
+    }
+    if (lastUserIndex === -1) return;
+
+    const question = shape.props.messages[lastUserIndex].content;
+    if (!question.trim()) return;
+
+    const context = buildContext(editor, blobId);
+    payload = {
+      image: shape.props.regionImage || undefined,
+      question,
+      boardSummary: context.boardSummary,
+      ancestorContext: context.ancestorContext,
+      history: shape.props.messages
+        .slice(0, lastUserIndex)
+        .filter((message) => message.content.trim())
+        .slice(-20)
+        .map((message) => ({ role: message.role, content: message.content })),
+    };
+  }
 
   const messages = [...shape.props.messages];
-  const last = messages[messages.length - 1];
-  if (last && last.role === "assistant") messages.pop();
+  while (messages.length && messages[messages.length - 1].role === "assistant") {
+    messages.pop();
+  }
 
   patchBlob(editor, blobId, { messages, status: "streaming", error: "" });
   void streamAnswer(editor, blobId, payload);
+}
+
+/** True while a request is writing into this blob. */
+export function hasActiveStream(blobId: string): boolean {
+  return activeStreams.has(blobId);
 }
 
 /** Stop an in-flight request (used when the blob is deleted). */

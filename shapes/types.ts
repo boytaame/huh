@@ -7,6 +7,12 @@ export type ChatMessage = {
   label?: string;
   /** Prompt we sent on the user's behalf (empty input): kept for context, never rendered. */
   hidden?: boolean;
+  /** Thumbs feedback on an assistant message (spec-addendum-3 D4). */
+  feedback?: "up" | "down";
+  /** Quick reason picked for a 👎 ("Wrong", "Too long", …). */
+  feedbackReason?: string;
+  /** Optional note from the 👎 form (≤300 chars). */
+  feedbackComment?: string;
 };
 
 /** A rect expressed as fractions (0..1) of an anchor shape's page bounds. */

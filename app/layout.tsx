@@ -4,8 +4,10 @@ import "tldraw/tldraw.css";
 import "katex/dist/katex.min.css";
 
 export const metadata: Metadata = {
-  title: "AI Canvas",
-  description: "A whiteboard where AI answers live next to the exact part you ask about.",
+  title: "Huh",
+  description: "Huh? What Happened Here?",
+  // Unlisted classmate demo: keep it out of search engines for now.
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({
