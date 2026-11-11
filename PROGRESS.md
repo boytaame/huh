@@ -1,7 +1,27 @@
 # PROGRESS
 
 ## Current branch
-session/d-launch-hardening (branched from the latest `main`; `master` is also present in this repo and was not touched)
+session/e-feel (branched from session/d-launch-hardening; merged into `master` and `main` after the Session E pass)
+
+## Session E status (spec-addendum-4)
+
+- **E1: done** (8a5f6ff) — Send becomes **Stop** while streaming; the abort keeps the partial answer, marks it with a UI-only `(stopped)` prop (never message content), returns to idle with no error UI, and refocuses the input. Stopping before the first token removes the empty bubble. `Esc` in the (read-only while streaming) input stops too.
+- **E2: done** (8a5f6ff) — Regenerate on the last assistant message replaces it in place with the same crop/question and a slightly higher temperature (`regenerate: true` → 0.45), with no duplicate user bubble. Copy offers readable text (markdown stripped, LaTeX kept, More included) and raw Markdown/LaTeX (marker removed), with a clipboard fallback and a 1.2s “Copied”.
+- **E3: done** (8a5f6ff) — Pencil on the last typed question fills the input and shows “Editing your last question · Cancel”; sending replaces that question and its answer, earlier turns stay, chips are not editable, `Esc` cancels.
+- **E4: done** (8a5f6ff) — `editor.store.listen({ scope: "document", source: "user" })` + 500ms debounce drives Saving… → ✓ Saved; camera changes are ignored. A localStorage probe approximates persistence health (no tldraw completion hook); failure shows “Couldn’t save, export your board” with a working snapshot button and tracks `save_failed`.
+- **E5: done** (8a5f6ff) — System/Light/Dark stored in `huh.theme`, applied to `<html>` before paint by `lib/themeBoot.ts`; tldraw follows via `updateUserPreferences`, the OS is followed live, blob/legal/help/onboarding/error surfaces have dark styles, KaTeX inherits text colour, and region capture forces `darkMode: false`.
+- **E6: done** (8a5f6ff) — “Report a bug” in the help popover and legal-page footer. Form URL wins (`_blank`, used as-is), else a prefilled mailto with app version, browser, last error code and time; hidden when neither is set. No board content is included.
+- **Regression:** addendum-1 P1/P3/P4/P5 flows re-exercised (typing/selection isolation, composing/Esc, anchoring, delete cascades and undo); addendum-3 error/Retry, feedback, onboarding, rate limits re-checked. See `CHECK-RESULTS-4.md`.
+
+### Session E verification limits
+- The local `.env.local` has no `LLM_API_KEY` and the machine could not reach the provider, so thread features were verified with a mocked `/api/ask` stream. One real answer must be checked by the owner after setting a key.
+- Not triggered live: the 30s first-token timeout, the error-boundary snapshot download, and PostHog Live Events. No screenshot pass was requested.
+
+### Owner todo (Session E additions)
+- [ ] Set a working `LLM_API_KEY` (and model) and send one real answer; Stop/Regenerate/Copy/Edit use the same stream path but were mocked locally.
+- [ ] Set `NEXT_PUBLIC_BUG_FORM_URL` or `NEXT_PUBLIC_CONTACT_EMAIL` so the bug-report link appears.
+- [ ] Re-check dark mode on a second browser/OS theme.
+- [ ] All Session D owner items still apply (Upstash, spend cap, PostHog key, tldraw license, `ADMIN_TOKEN`, legal drafts).
 
 ## Session D status (spec-addendum-3)
 
@@ -68,7 +88,8 @@ session/d-launch-hardening (branched from the latest `main`; `master` is also pr
 - Nothing.
 
 ## Next up (in order)
-1. Manual browser pass on `session/d-launch-hardening` (the list above), then merge it yourself (`git switch master && git merge --no-ff session/d-launch-hardening`). Do not have the agent merge it.
+1. Merged into `master` and `main` after the Session D + E verification (`CHECK-RESULTS-3.md`, `CHECK-RESULTS-4.md`). `session/b-drag-fix` was deliberately left unmerged: it is a stale branch whose commits revert fixes already in `master`.
+2. Verify one real provider answer locally or on Vercel after setting `LLM_API_KEY`.
 2. Owner checklist in `README.md` (Upstash, spend cap, PostHog, tldraw license, legal drafts, `ADMIN_TOKEN`), then deploy on Vercel.
 3. Show 1–3 classmates with zero explanation and watch whether they find the Ask box alone.
 
