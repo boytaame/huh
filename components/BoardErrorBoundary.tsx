@@ -42,10 +42,12 @@ export class BoardErrorBoundary extends Component<Props, State> {
     if (!this.state.crashed) return this.props.children;
 
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-neutral-50 p-6">
-        <div className="w-full max-w-md rounded-xl border border-neutral-200 bg-white p-6 text-center shadow-sm">
-          <div className="text-sm font-semibold text-neutral-900">Something broke.</div>
-          <p className="mt-2 text-sm leading-relaxed text-neutral-600">
+      <div className="flex h-screen w-screen items-center justify-center bg-neutral-50 p-6 dark:bg-neutral-950">
+        <div className="w-full max-w-md rounded-xl border border-neutral-200 bg-white p-6 text-center shadow-sm dark:border-neutral-700 dark:bg-neutral-900">
+          <div className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+            Something broke.
+          </div>
+          <p className="mt-2 text-sm leading-relaxed text-neutral-600 dark:text-neutral-300">
             Your board is saved in this browser. Reload to pick up where you left off, or
             download a snapshot first.
           </p>
@@ -53,14 +55,14 @@ export class BoardErrorBoundary extends Component<Props, State> {
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="rounded-lg bg-neutral-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-neutral-700"
+              className="rounded-lg bg-neutral-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300"
             >
               Reload
             </button>
             <button
               type="button"
               onClick={this.downloadSnapshot}
-              className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-800 transition hover:bg-neutral-50"
+              className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-800 transition hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
             >
               Download snapshot
             </button>

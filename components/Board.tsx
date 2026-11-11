@@ -20,12 +20,20 @@ import {
 import { installAnchoring } from "@/lib/anchoring";
 import { installDeleteCascade } from "@/lib/lifecycle";
 import { ByokPanel } from "@/components/ByokPanel";
+import { BugReportLink } from "@/components/BugReportLink";
 import {
   isOnboarded,
   markOnboarded,
   ONBOARDED_EVENT,
 } from "@/lib/onboarding";
 import { track } from "@/lib/analytics";
+import { useAutosave } from "@/lib/autosave";
+import {
+  applyThemePreference,
+  setThemePreference,
+  useThemePreference,
+  type ThemePreference,
+} from "@/lib/theme";
 
 declare global {
   interface Window {
@@ -46,7 +54,7 @@ function ExportPanel() {
     <div className="flex items-center gap-1.5">
       <button
         type="button"
-        className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-800 shadow-sm transition hover:bg-neutral-50"
+        className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-800 shadow-sm transition hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
         onClick={() => {
           track("export_json");
           downloadJson("board.json", getBoardContext(editor, loadBoardTitle()));
@@ -57,7 +65,7 @@ function ExportPanel() {
       <button
         type="button"
         title="Download full snapshot"
-        className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-medium text-neutral-500 shadow-sm transition hover:bg-neutral-50 hover:text-neutral-800"
+        className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-medium text-neutral-500 shadow-sm transition hover:bg-neutral-50 hover:text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
         onClick={() => {
           track("snapshot_download");
           downloadSnapshot(editor);
@@ -115,7 +123,7 @@ function HelpPopover() {
     ["A", "Ask tool"],
     ["Enter", "Send"],
     ["Shift + Enter", "New line"],
-    ["Esc", "Cancel"],
+    ["Esc", "Cancel / stop"],
     ["Ctrl + wheel", "Zoom the board"],
     ["Drag the header", "Move a thread"],
   ];
@@ -124,27 +132,36 @@ function HelpPopover() {
     // Offset from the left edge so it never covers tldraw's bottom-left zoom panel.
     <div ref={rootRef} className="pointer-events-auto absolute bottom-3 left-20">
       {open ? (
-        <div className="mb-2 w-[250px] rounded-xl border border-neutral-200 bg-white p-3 shadow-lg">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400">
+        <div className="mb-2 w-[250px] rounded-xl border border-neutral-200 bg-white p-3 shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400 dark:text-neutral-500">
             Shortcuts
           </div>
           <dl className="mt-2 space-y-1.5">
             {rows.map(([keys, label]) => (
               <div key={keys} className="flex items-center justify-between gap-3">
-                <dt className="text-[12px] text-neutral-600">{label}</dt>
-                <dd className="rounded border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[10.5px] font-medium text-neutral-700">
+                <dt className="text-[12px] text-neutral-600 dark:text-neutral-300">
+                  {label}
+                </dt>
+                <dd className="rounded border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[10.5px] font-medium text-neutral-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
                   {keys}
                 </dd>
               </div>
             ))}
           </dl>
-          <div className="mt-3 flex items-center gap-2 border-t border-neutral-100 pt-2 text-[11px] text-neutral-500">
-            <a className="underline hover:text-neutral-800" href="/privacy">
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-neutral-100 pt-2 text-[11px] text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+            <a
+              className="underline hover:text-neutral-800 dark:hover:text-neutral-200"
+              href="/privacy"
+            >
               Privacy
             </a>
-            <a className="underline hover:text-neutral-800" href="/terms">
+            <a
+              className="underline hover:text-neutral-800 dark:hover:text-neutral-200"
+              href="/terms"
+            >
               Terms
             </a>
+            <BugReportLink className="underline hover:text-neutral-800 dark:hover:text-neutral-200" />
           </div>
         </div>
       ) : null}
@@ -154,7 +171,7 @@ function HelpPopover() {
         aria-label="Help and shortcuts"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex h-8 w-8 items-center justify-center rounded-full border border-neutral-200 bg-white text-sm font-semibold text-neutral-500 shadow-sm transition hover:bg-neutral-50 hover:text-neutral-800"
+        className="flex h-8 w-8 items-center justify-center rounded-full border border-neutral-200 bg-white text-sm font-semibold text-neutral-500 shadow-sm transition hover:bg-neutral-50 hover:text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
       >
         ?
       </button>
@@ -179,6 +196,8 @@ function BoardChrome({
   const isAsking = toolId === "ask";
   const [showIntro, setShowIntro] = useState(() => !isOnboarded());
   const [sampleState, setSampleState] = useState<"idle" | "loading" | "error">("idle");
+  const saveState = useAutosave(editor);
+  const theme = useThemePreference();
 
   useEffect(() => {
     track("app_opened");
@@ -297,10 +316,10 @@ function BoardChrome({
 
   return (
     <div className="pointer-events-none absolute inset-0 z-[600]">
-      <div className="pointer-events-auto absolute left-3 top-3 flex items-center gap-2 rounded-lg border border-neutral-200 bg-white/95 px-3 py-1.5 shadow-sm backdrop-blur">
+      <div className="pointer-events-auto absolute left-3 top-3 flex items-center gap-2 rounded-lg border border-neutral-200 bg-white/95 px-3 py-1.5 shadow-sm backdrop-blur dark:border-neutral-700 dark:bg-neutral-900/95">
         <span className="h-2 w-2 shrink-0 rounded-full bg-amber-400" />
         <div className="min-w-0">
-          <div className="text-[8.5px] font-semibold uppercase tracking-[0.18em] text-neutral-400">
+          <div className="text-[8.5px] font-semibold uppercase tracking-[0.18em] text-neutral-400 dark:text-neutral-500">
             AI Canvas
           </div>
           <input
@@ -313,10 +332,51 @@ function BoardChrome({
             maxLength={80}
             spellCheck={false}
             aria-label="Board title"
-            className="block w-[180px] truncate bg-transparent text-sm font-semibold text-neutral-900 outline-none placeholder:text-neutral-400"
+            className="block w-[180px] truncate bg-transparent text-sm font-semibold text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             placeholder={DEFAULT_TITLE}
           />
         </div>
+
+        <div className="ml-1 flex min-w-[64px] items-center border-l border-neutral-200 pl-2 dark:border-neutral-700">
+          {saveState === "failed" ? (
+            <button
+              type="button"
+              title="Saving failed. Download a snapshot of your board."
+              onClick={() => {
+                track("snapshot_download");
+                downloadSnapshot(editor);
+              }}
+              className="max-w-[170px] truncate rounded-md border border-amber-300 bg-amber-50 px-1.5 py-1 text-[10px] font-medium text-amber-800 transition hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-200"
+            >
+              Couldn’t save, export your board
+            </button>
+          ) : saveState === "idle" ? null : (
+            <span className="flex items-center gap-1 text-[10px] font-medium text-neutral-400 dark:text-neutral-500">
+              {saveState === "saving" ? (
+                "Saving…"
+              ) : (
+                <>
+                  <span className="text-emerald-600 dark:text-emerald-400">✓</span>
+                  Saved
+                </>
+              )}
+            </span>
+          )}
+        </div>
+
+        <select
+          value={theme}
+          onChange={(event) =>
+            setThemePreference(event.target.value as ThemePreference)
+          }
+          aria-label="Theme"
+          title="Theme: System / Light / Dark"
+          className="rounded-md border border-neutral-200 bg-white px-1 py-0.5 text-[10.5px] text-neutral-600 outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+        >
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
       </div>
 
       <div className="pointer-events-auto absolute bottom-20 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2">
@@ -327,7 +387,7 @@ function BoardChrome({
           className={`flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold shadow-sm transition ${
             isAsking
               ? "border-amber-500 bg-amber-400 text-neutral-900"
-              : "border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-50"
+              : "border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800"
           }`}
         >
           <span
@@ -340,23 +400,23 @@ function BoardChrome({
             className={`ml-0.5 rounded border px-1 text-[10px] font-medium ${
               isAsking
                 ? "border-black/20 bg-black/10 text-neutral-800"
-                : "border-neutral-200 bg-neutral-50 text-neutral-500"
+                : "border-neutral-200 bg-neutral-50 text-neutral-500 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
             }`}
           >
             A
           </kbd>
         </button>
         {isAsking && (
-          <div className="rounded-full bg-neutral-900/90 px-3 py-1 text-[11px] text-white shadow-sm">
+          <div className="rounded-full bg-neutral-900/90 px-3 py-1 text-[11px] text-white shadow-sm dark:bg-neutral-100/90 dark:text-neutral-900">
             Drag a box over any part of the board
           </div>
         )}
       </div>
 
       {shapeCount === 0 && !isAsking && (
-        <div className="absolute left-1/2 top-1/2 w-[340px] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-dashed border-neutral-300 bg-white/70 px-5 py-4 text-center text-[12.5px] leading-relaxed text-neutral-500 backdrop-blur">
+        <div className="absolute left-1/2 top-1/2 w-[340px] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-dashed border-neutral-300 bg-white/70 px-5 py-4 text-center text-[12.5px] leading-relaxed text-neutral-500 backdrop-blur dark:border-neutral-600 dark:bg-neutral-900/70 dark:text-neutral-400">
           Paste a problem (Ctrl+V) or drop an image. Then press{" "}
-          <span className="rounded border border-neutral-300 bg-white px-1 text-[10px] font-medium text-neutral-700">
+          <span className="rounded border border-neutral-300 bg-white px-1 text-[10px] font-medium text-neutral-700 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-200">
             A
           </span>{" "}
           and box the part you don’t get.
@@ -364,21 +424,23 @@ function BoardChrome({
       )}
 
       {showIntro ? (
-        <div className="pointer-events-auto absolute left-3 top-20 w-[300px] rounded-xl border border-neutral-200 bg-white p-4 shadow-lg">
+        <div className="pointer-events-auto absolute left-3 top-20 w-[300px] rounded-xl border border-neutral-200 bg-white p-4 shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
           <button
             type="button"
             onClick={dismissIntro}
             aria-label="Dismiss intro"
             title="Dismiss"
-            className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-md text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700"
+            className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-md text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
           >
             ×
           </button>
-          <div className="text-sm font-semibold text-neutral-900">Three moves, that’s it</div>
-          <ol className="mt-2 space-y-1.5 text-[12.5px] leading-relaxed text-neutral-600">
+          <div className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+            Three moves, that’s it
+          </div>
+          <ol className="mt-2 space-y-1.5 text-[12.5px] leading-relaxed text-neutral-600 dark:text-neutral-300">
             <li>1. Paste or drop your material</li>
             <li>
-              2. Press <span className="rounded border border-neutral-300 bg-neutral-50 px-1 text-[10px] font-medium">A</span> and draw a box over what confuses you
+              2. Press <span className="rounded border border-neutral-300 bg-neutral-50 px-1 text-[10px] font-medium dark:border-neutral-600 dark:bg-neutral-800">A</span> and draw a box over what confuses you
             </li>
             <li>3. Ask your question, or just hit Enter</li>
           </ol>
@@ -387,28 +449,30 @@ function BoardChrome({
               type="button"
               onClick={loadSample}
               disabled={sampleState === "loading"}
-              className="rounded-lg bg-neutral-900 px-2.5 py-1.5 text-[11.5px] font-semibold text-white transition hover:bg-neutral-700 disabled:bg-neutral-300"
+              className="rounded-lg bg-neutral-900 px-2.5 py-1.5 text-[11.5px] font-semibold text-white transition hover:bg-neutral-700 disabled:bg-neutral-300 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300 dark:disabled:bg-neutral-700 dark:disabled:text-neutral-400"
             >
               {sampleState === "loading" ? "Loading…" : "Try a sample"}
             </button>
             <button
               type="button"
               onClick={dismissIntro}
-              className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-[11.5px] font-medium text-neutral-600 transition hover:bg-neutral-50"
+              className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-[11.5px] font-medium text-neutral-600 transition hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
             >
               Got it
             </button>
           </div>
           {sampleState === "error" ? (
-            <div className="mt-2 text-[11px] text-red-600">Couldn’t load the sample.</div>
+            <div className="mt-2 text-[11px] text-red-600 dark:text-red-400">
+              Couldn’t load the sample.
+            </div>
           ) : null}
-          <div className="mt-2 text-[10.5px] leading-relaxed text-neutral-400">
+          <div className="mt-2 text-[10.5px] leading-relaxed text-neutral-400 dark:text-neutral-500">
             By using Huh you agree to the{" "}
-            <a className="underline hover:text-neutral-600" href="/terms">
+            <a className="underline hover:text-neutral-600 dark:hover:text-neutral-300" href="/terms">
               Terms
             </a>{" "}
             and{" "}
-            <a className="underline hover:text-neutral-600" href="/privacy">
+            <a className="underline hover:text-neutral-600 dark:hover:text-neutral-300" href="/privacy">
               Privacy Policy
             </a>
             .
@@ -422,25 +486,18 @@ function BoardChrome({
 }
 
 /**
- * The app's chrome is light-only, so a dark colour scheme — stored by tldraw in
- * this browser, resolved from the OS when the scheme is "system", or pushed in
- * by another tab — paints the board black behind white UI. Watch the resolved
- * mode rather than pinning once on mount: the OS listener and tldraw's
- * cross-tab broadcasts can both turn the board dark after the editor starts.
+ * Applies the System / Light / Dark preference to tldraw's own colour scheme
+ * (spec-addendum-4 E5). The DOM class is applied by the boot script and the
+ * theme store; this keeps the canvas in sync, including system changes.
  */
-function ForceLightBoard() {
+function ThemeSync() {
   const editor = useEditor();
-  const isDark = useValue(
-    "board-is-dark",
-    () => editor.user.getIsDarkMode(),
-    [editor],
-  );
+  const theme = useThemePreference();
 
   useEffect(() => {
-    if (isDark) {
-      editor.user.updateUserPreferences({ colorScheme: "light" });
-    }
-  }, [editor, isDark]);
+    editor.user.updateUserPreferences({ colorScheme: theme });
+    applyThemePreference(theme);
+  }, [editor, theme]);
 
   return null;
 }
@@ -481,7 +538,7 @@ export default function Board() {
           };
         }}
       >
-        <ForceLightBoard />
+        <ThemeSync />
         <BoardChrome title={title} onTitleChange={handleTitleChange} />
       </Tldraw>
     </div>

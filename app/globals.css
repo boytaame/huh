@@ -1,7 +1,14 @@
 @import "tailwindcss";
 
+/* Class-based dark mode, applied by the boot script in app/layout.tsx (E5). */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
 }
 
 html,
@@ -11,6 +18,11 @@ body {
   overflow: hidden;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
     sans-serif;
+  background: #fafafa;
+}
+
+html.dark body {
+  background: #101011;
 }
 
 /* The tldraw canvas should fill the window. */
@@ -197,9 +209,14 @@ body {
   box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
 }
 
-.ai-blob-input:disabled {
+.ai-blob-input:disabled,
+.ai-blob-input:read-only {
   background: #fafafa;
   color: #a3a3a3;
+}
+
+.ai-blob-input:read-only {
+  cursor: default;
 }
 
 .ai-blob-send {
@@ -498,6 +515,335 @@ body {
 
 .ai-markdown .katex {
   font-size: 1.02em;
+  /* Inherit the blob text colour so KaTeX is legible in dark mode (E5). */
+  color: inherit;
+}
+
+/* ---------- Stop / edit / copy actions (spec-addendum-4 E1–E3) ---------- */
+
+.ai-blob-stop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 9px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  background: #b91c1c;
+  color: #ffffff;
+  font-size: 11.5px;
+  font-weight: 600;
+  transition: background 120ms ease;
+}
+
+.ai-blob-stop:hover {
+  background: #991b1b;
+}
+
+.ai-msg-user-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.ai-edit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  width: 22px;
+  flex: 0 0 22px;
+  border-radius: 5px;
+  color: #b8b8b8;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.ai-msg-user-row:hover .ai-edit-btn,
+.ai-edit-btn:focus-visible {
+  opacity: 1;
+}
+
+.ai-edit-btn:hover {
+  background: #f5f5f5;
+  color: #525252;
+}
+
+@media (hover: none) {
+  .ai-edit-btn {
+    opacity: 0.8;
+  }
+}
+
+.ai-edit-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+  font-size: 11px;
+  color: #737373;
+  user-select: none;
+}
+
+.ai-edit-cancel {
+  font-size: 11px;
+  font-weight: 600;
+  color: #525252;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.ai-edit-cancel:hover {
+  background: #f5f5f5;
+  color: #171717;
+}
+
+.ai-feedback-btn-wide {
+  width: auto;
+  padding: 0 5px;
+}
+
+.ai-copied {
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.ai-latex-glyph {
+  font-family: ui-serif, Georgia, serif;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* ---------- Dark mode overrides (E5) ---------- */
+
+.dark .ai-blob-card {
+  border-color: #3f3f46;
+  background: #18181b;
+  color: #f4f4f5;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 12px 32px -12px rgba(0, 0, 0, 0.7);
+}
+
+.dark .ai-blob-header {
+  border-bottom-color: #27272a;
+  background: #1f1f23;
+}
+
+.dark .ai-blob-thumb {
+  border-color: #3f3f46;
+}
+
+.dark .ai-blob-icon-btn {
+  color: #a1a1aa;
+}
+
+.dark .ai-blob-icon-btn:hover {
+  background: #27272a;
+  color: #f4f4f5;
+}
+
+.dark .ai-blob-icon-btn-danger:hover {
+  background: rgba(127, 29, 29, 0.4);
+  color: #fca5a5;
+}
+
+.dark .ai-blob-collapsed {
+  color: #d4d4d8;
+}
+
+.dark .ai-blob-body::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+}
+
+.dark .ai-msg-user {
+  background: #27272a;
+  color: #e4e4e7;
+}
+
+.dark .ai-msg-assistant {
+  color: #f4f4f5;
+}
+
+.dark .ai-blob-footer {
+  border-top-color: #27272a;
+  background: #18181b;
+}
+
+.dark .ai-chip {
+  border-color: #3f3f46;
+  background: #27272a;
+  color: #d4d4d8;
+}
+
+.dark .ai-chip:hover {
+  background: #3f3f46;
+  color: #fafafa;
+}
+
+.dark .ai-blob-input {
+  border-color: #3f3f46;
+  background: #111113;
+  color: #f4f4f5;
+}
+
+.dark .ai-blob-input:focus {
+  border-color: #a1a1aa;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.06);
+}
+
+.dark .ai-blob-input:disabled,
+.dark .ai-blob-input:read-only {
+  background: #18181b;
+  color: #71717a;
+}
+
+.dark .ai-blob-send {
+  background: #f4f4f5;
+  color: #18181b;
+}
+
+.dark .ai-blob-send:hover:enabled {
+  background: #d4d4d8;
+}
+
+.dark .ai-blob-send:disabled {
+  background: #3f3f46;
+  color: #71717a;
+}
+
+.dark .ai-blob-stop {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.dark .ai-blob-stop:hover {
+  background: #ef4444;
+}
+
+.dark .ai-blob-note,
+.dark .ai-cutoff {
+  color: #a1a1aa;
+}
+
+.dark .ai-more-toggle {
+  color: #a1a1aa;
+}
+
+.dark .ai-more-toggle:hover {
+  color: #f4f4f5;
+}
+
+.dark .ai-more-body {
+  border-left-color: #3f3f46;
+  color: #d4d4d8;
+}
+
+.dark .ai-feedback-btn {
+  color: #71717a;
+}
+
+.dark .ai-feedback-btn:hover {
+  background: #27272a;
+  color: #d4d4d8;
+}
+
+.dark .ai-feedback-btn-up {
+  color: #4ade80;
+}
+
+.dark .ai-feedback-btn-down {
+  color: #f87171;
+}
+
+.dark .ai-feedback-form {
+  border-color: #3f3f46;
+  background: #1f1f23;
+}
+
+.dark .ai-feedback-reason {
+  border-color: #3f3f46;
+  background: #27272a;
+  color: #d4d4d8;
+}
+
+.dark .ai-feedback-reason-on {
+  border-color: #f4f4f5;
+  background: #f4f4f5;
+  color: #18181b;
+}
+
+.dark .ai-feedback-comment {
+  border-color: #3f3f46;
+  background: #111113;
+  color: #f4f4f5;
+}
+
+.dark .ai-feedback-comment:focus {
+  border-color: #a1a1aa;
+}
+
+.dark .ai-feedback-send {
+  background: #f4f4f5;
+  border-color: #f4f4f5;
+  color: #18181b;
+}
+
+.dark .ai-feedback-send:disabled {
+  background: #3f3f46;
+  border-color: #3f3f46;
+  color: #71717a;
+}
+
+.dark .ai-feedback-cancel,
+.dark .ai-edit-note {
+  color: #a1a1aa;
+}
+
+.dark .ai-edit-cancel {
+  color: #d4d4d8;
+}
+
+.dark .ai-edit-cancel:hover,
+.dark .ai-edit-btn:hover {
+  background: #27272a;
+  color: #f4f4f5;
+}
+
+.dark .ai-edit-btn {
+  color: #71717a;
+}
+
+.dark .ai-markdown code,
+.dark .ai-markdown pre {
+  background: #27272a;
+  color: #e4e4e7;
+}
+
+.dark .ai-markdown blockquote {
+  border-left-color: #3f3f46;
+  color: #a1a1aa;
+}
+
+.dark .ai-markdown th,
+.dark .ai-markdown td {
+  border-color: #3f3f46;
+}
+
+.dark .ai-markdown hr {
+  border-top-color: #3f3f46;
+}
+
+.dark .ai-caret {
+  background: #f4f4f5;
+}
+
+.dark .ai-typing span {
+  background: #71717a;
 }
 
 /* ---------- streaming caret ---------- */

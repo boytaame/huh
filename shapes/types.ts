@@ -56,6 +56,11 @@ export type AiBlobProps = {
   userSized: boolean;
   /** Height to restore when a hand-sized card is expanded again (0 = none). */
   userHeight: number;
+  /**
+   * Index of the assistant message the user stopped (E1), or -1. The UI-only
+   * `(stopped)` marker is rendered from this, never stored in message content.
+   */
+  stopped: number;
 };
 
 // tldraw 5 requires custom shapes to be registered so they become part of the

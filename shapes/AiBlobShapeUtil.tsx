@@ -61,6 +61,7 @@ export class AiBlobShapeUtil extends BaseBoxShapeUtil<AiBlobShape> {
     color: T.string,
     userSized: T.boolean,
     userHeight: T.number,
+    stopped: T.number,
   };
 
   /** Backfill props for blobs saved before spec-addendum-1. */
@@ -89,6 +90,14 @@ export class AiBlobShapeUtil extends BaseBoxShapeUtil<AiBlobShape> {
         }),
         down: "none",
       },
+      {
+        id: "com.tldraw.shape.ai-blob/3",
+        up: (props: Record<string, unknown>) => ({
+          stopped: -1,
+          ...props,
+        }),
+        down: "none",
+      },
     ],
   };
 
@@ -108,6 +117,7 @@ export class AiBlobShapeUtil extends BaseBoxShapeUtil<AiBlobShape> {
       color: "yellow",
       userSized: false,
       userHeight: 0,
+      stopped: -1,
     };
   }
 

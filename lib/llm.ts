@@ -79,6 +79,8 @@ export type LLMOptions = {
   /** Overrides the server-side env config (BYOK path). */
   config?: LLMConfig;
   signal?: AbortSignal;
+  /** Regenerate uses a slightly higher value for variation (spec-addendum-4 E2). */
+  temperature?: number;
 };
 
 /**
@@ -215,6 +217,7 @@ export async function streamLLM(
   const config = options.config ?? getConfig();
   const { provider, apiKey } = config;
   const model = config.model?.trim() || DEFAULT_MODELS[provider];
+  const temperature = options.temperature ?? 0.3;
   const history = normalizeHistory(request.history);
   const image = request.image ? parseDataUrl(request.image) : null;
 
@@ -251,7 +254,8 @@ export async function streamLLM(
           systemInstruction: { parts: [{ text: request.system }] },
           contents,
           generationConfig: {
-            temperature: 0.3,
+            temperature,
+            // Server-enforced ceiling, independent of anything the client sends.
             maxOutputTokens: MAX_OUTPUT_TOKENS,
           },
         }),
@@ -306,7 +310,7 @@ export async function streamLLM(
         model,
         // Server-enforced ceiling, independent of anything the client sends.
         max_tokens: MAX_OUTPUT_TOKENS,
-        temperature: 0.3,
+        temperature,
         system: request.system,
         stream: true,
         messages,
@@ -351,7 +355,7 @@ export async function streamLLM(
     },
     body: JSON.stringify({
       model,
-      temperature: 0.3,
+      temperature,
       max_tokens: MAX_OUTPUT_TOKENS,
       stream: true,
       messages,

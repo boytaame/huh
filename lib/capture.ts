@@ -26,6 +26,9 @@ export async function captureRegionImage(
       bounds: new Box(bounds.x, bounds.y, bounds.w, bounds.h),
       format: "png",
       background: true,
+      // Always export light: a dark-theme crop is harder for the vision model
+      // to read (spec-addendum-4 E5).
+      darkMode: false,
       padding: 0,
       pixelRatio: 2,
     });

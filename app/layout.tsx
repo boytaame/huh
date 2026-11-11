@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "tldraw/tldraw.css";
 import "katex/dist/katex.min.css";
+import { THEME_BOOT_SCRIPT } from "@/lib/themeBoot";
 
 export const metadata: Metadata = {
   title: "Huh",
@@ -14,7 +15,11 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Applies System / Light / Dark before the first paint (E5). */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+      </head>
       <body className="antialiased">{children}</body>
     </html>
   );

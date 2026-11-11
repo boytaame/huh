@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { BugReportLink } from "@/components/BugReportLink";
 
 export const metadata: Metadata = {
   title: "Privacy — Huh",
@@ -11,8 +12,10 @@ const contact = process.env.NEXT_PUBLIC_CONTACT_EMAIL?.trim();
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="mt-7">
-      <h2 className="text-[15px] font-semibold text-neutral-900">{title}</h2>
-      <div className="mt-1.5 space-y-2 text-[13.5px] leading-relaxed text-neutral-600">
+      <h2 className="text-[15px] font-semibold text-neutral-900 dark:text-neutral-100">
+        {title}
+      </h2>
+      <div className="mt-1.5 space-y-2 text-[13.5px] leading-relaxed text-neutral-600 dark:text-neutral-300">
         {children}
       </div>
     </section>
@@ -21,20 +24,27 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export default function PrivacyPage() {
   return (
-    <main className="h-screen overflow-y-auto bg-neutral-50">
+    <main className="h-screen overflow-y-auto bg-neutral-50 dark:bg-neutral-950">
       <div className="mx-auto max-w-2xl px-5 py-10">
-        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[12.5px] font-semibold text-amber-800">
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[12.5px] font-semibold text-amber-800 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-200">
           DRAFT — owner must review
         </div>
 
-        <a href="/" className="mt-5 inline-block text-[12px] text-neutral-500 underline hover:text-neutral-800">
+        <a
+          href="/"
+          className="mt-5 inline-block text-[12px] text-neutral-500 underline hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+        >
           ← Back to Huh
         </a>
 
-        <h1 className="mt-3 text-2xl font-bold tracking-tight text-neutral-900">Privacy Policy</h1>
-        <p className="mt-1 text-[12px] text-neutral-400">Last updated: November 10, 2026</p>
+        <h1 className="mt-3 text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
+          Privacy Policy
+        </h1>
+        <p className="mt-1 text-[12px] text-neutral-400 dark:text-neutral-500">
+          Last updated: November 11, 2026
+        </p>
 
-        <p className="mt-5 text-[13.5px] leading-relaxed text-neutral-600">
+        <p className="mt-5 text-[13.5px] leading-relaxed text-neutral-600 dark:text-neutral-300">
           Huh is a small whiteboard for studying. There are no accounts yet. This page
           explains, in plain English, what leaves your browser and what stays on your
           device.
@@ -73,6 +83,9 @@ export default function PrivacyPage() {
             id. It is httpOnly, is not an account, and exists only so rate limits can
             count requests. It contains no personal details.
           </p>
+          <p>
+            Your theme choice (System, Light or Dark) is stored in this browser only.
+          </p>
         </Section>
 
         <Section title="Analytics">
@@ -89,12 +102,17 @@ export default function PrivacyPage() {
           </p>
         </Section>
 
-        <Section title="Feedback">
+        <Section title="Feedback and bug reports">
           <p>
             If you press 👍 or 👎 on an answer, Huh stores your rating, the answer text,
             your question, the optional comment you typed, and the prompt/model version.
             It never stores the selected image. Feedback is used only to improve the
             prompts.
+          </p>
+          <p>
+            A bug report contains only what you write plus technical lines: app version,
+            browser user-agent string, the last error code, and the time. It never
+            includes your board, messages or images.
           </p>
         </Section>
 
@@ -120,7 +138,10 @@ export default function PrivacyPage() {
             {contact ? (
               <>
                 Questions or deletion requests:{" "}
-                <a className="underline hover:text-neutral-900" href={`mailto:${contact}`}>
+                <a
+                  className="underline hover:text-neutral-900 dark:hover:text-neutral-100"
+                  href={`mailto:${contact}`}
+                >
                   {contact}
                 </a>
                 .
@@ -139,9 +160,16 @@ export default function PrivacyPage() {
           </p>
         </Section>
 
-        <p className="mt-10 border-t border-neutral-200 pt-4 text-[12px] text-neutral-400">
-          This is a draft for a classmate demo, not legal advice.
-        </p>
+        <div className="mt-10 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-neutral-200 pt-4 text-[12px] text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
+          <span>This is a draft for a classmate demo, not legal advice.</span>
+          <a
+            className="underline hover:text-neutral-700 dark:hover:text-neutral-300"
+            href="/terms"
+          >
+            Terms
+          </a>
+          <BugReportLink className="underline hover:text-neutral-700 dark:hover:text-neutral-300" />
+        </div>
       </div>
     </main>
   );
