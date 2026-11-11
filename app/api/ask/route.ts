@@ -33,6 +33,8 @@ type AskPayload = {
   boardSummary: string;
   ancestorContext: string;
   history: LLMMessage[];
+  /** Regenerate asks for a slightly different answer (spec-addendum-4 E2). */
+  regenerate?: boolean;
 };
 
 type Parsed<T> = { ok: true; value: T } | { ok: false; code: ErrorCode; message: string };
@@ -197,6 +199,10 @@ function validateBody(body: unknown): Parsed<AskPayload> {
   const history = validateHistory(payload.history);
   if (!history.ok) return history;
 
+  if (payload.regenerate !== undefined && typeof payload.regenerate !== "boolean") {
+    return fail("bad_request", "Malformed request.");
+  }
+
   return {
     ok: true,
     value: {
@@ -205,6 +211,7 @@ function validateBody(body: unknown): Parsed<AskPayload> {
       boardSummary: boardSummary.value,
       ancestorContext: ancestorContext.value,
       history: history.value,
+      regenerate: payload.regenerate === true,
     },
   };
 }
@@ -277,13 +284,16 @@ export async function POST(request: Request): Promise<Response> {
   );
 
   try {
-    const stream = await streamLLM({
-      system: SYSTEM_PROMPT,
-      context,
-      question: payload.question,
-      image: payload.image,
-      history: payload.history,
-    });
+    const stream = await streamLLM(
+      {
+        system: SYSTEM_PROMPT,
+        context,
+        question: payload.question,
+        image: payload.image,
+        history: payload.history,
+      },
+      { temperature: payload.regenerate ? 0.45 : 0.3 },
+    );
 
     logRequest({ clientIdHash, status: 200, ms: Date.now() - startedAt });
 

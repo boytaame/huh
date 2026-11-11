@@ -6,6 +6,7 @@ import { buildContext } from "@/lib/context";
 import { DEFAULT_QUESTION } from "@/lib/chips";
 import { markOnboarded } from "@/lib/onboarding";
 import { track } from "@/lib/analytics";
+import { setLastErrorCode } from "@/lib/lastError";
 
 export type AskPayload = {
   image?: string;
@@ -13,6 +14,8 @@ export type AskPayload = {
   boardSummary: string;
   ancestorContext: string;
   history: ChatMessage[];
+  /** Regenerate repeats the same question with a slightly higher temperature. */
+  regenerate?: boolean;
 };
 
 type FailureCode =
@@ -72,9 +75,14 @@ export function friendlyErrorMessage(
 
 const activeStreams = new Map<string, AbortController>();
 const lastPayloads = new Map<string, AskPayload>();
+/** Blobs whose in-flight request was ended by the user's Stop button (E1). */
+const stopRequests = new Set<string>();
 
 /** Abort if no token arrives within this window. */
 const FIRST_TOKEN_TIMEOUT_MS = 30_000;
+
+/** Regenerate variation, shared by the hosted and BYOK paths (E2). */
+const REGENERATE_TEMPERATURE = 0.45;
 
 function patchBlob(
   editor: Editor,
@@ -132,6 +140,7 @@ function markFailure(
   const shape = editor.getShape<AiBlobShape>(blobId);
   if (!shape) return;
 
+  setLastErrorCode(code);
   track("error_shown", { code });
   if (code === "rate_limited") track("rate_limited");
 
@@ -145,6 +154,7 @@ function markFailure(
     messages,
     status: "error",
     error: message,
+    stopped: -1,
   });
 }
 
@@ -178,6 +188,7 @@ export async function streamAnswer(
     ],
     status: "streaming",
     error: "",
+    stopped: -1,
   });
 
   let accumulated = "";
@@ -220,7 +231,11 @@ export async function streamAnswer(
           image: payload.image,
           history: payload.history,
         },
-        { config: byok, signal: controller.signal },
+        {
+          config: byok,
+          signal: controller.signal,
+          ...(payload.regenerate ? { temperature: REGENERATE_TEMPERATURE } : {}),
+        },
       );
     } else {
       const response = await fetch("/api/ask", {
@@ -266,14 +281,39 @@ export async function streamAnswer(
     }
 
     flush();
-    patchBlob(editor, blobId, { status: "idle", error: "" });
+    patchBlob(editor, blobId, { status: "idle", error: "", stopped: -1 });
     // The first real answer retires the first-run card for good (D3).
     markOnboarded();
   } catch (error) {
     if (controller.signal.aborted) {
-      if (!timedOut) return; // deleted, cancelled, or superseded
-      markFailure(editor, blobId, "timeout", friendlyErrorMessage("timeout"), false);
-      return;
+      if (timedOut) {
+        markFailure(editor, blobId, "timeout", friendlyErrorMessage("timeout"), false);
+        return;
+      }
+
+      // Stopped by the user (E1): keep the partial answer, mark it in the UI
+      // only, and return to idle without the error/Retry state. Stopping before
+      // the first token leaves no empty bubble.
+      if (stopRequests.delete(blobId)) {
+        flush();
+        const shape = editor.getShape<AiBlobShape>(blobId);
+        if (shape) {
+          let messages = shape.props.messages;
+          const last = messages[messages.length - 1];
+          let stopped = -1;
+          if (last?.role === "assistant") {
+            if (!last.content.trim()) messages = messages.slice(0, -1);
+            else stopped = messages.length - 1;
+          }
+          patchBlob(editor, blobId, {
+            messages,
+            status: "idle",
+            error: "",
+            stopped,
+          });
+        }
+      }
+      return; // deleted, cancelled, superseded, or stopped
     }
 
     const shape = editor.getShape<AiBlobShape>(blobId);
@@ -303,6 +343,7 @@ export async function streamAnswer(
     );
   } finally {
     clearTimeout(timeout);
+    stopRequests.delete(blobId);
     if (activeStreams.get(blobId) === controller) {
       activeStreams.delete(blobId);
     }
@@ -354,6 +395,7 @@ export function sendQuestion(
     messages: [...messages, userMessage],
     status: "streaming",
     error: "",
+    stopped: -1,
   });
 
   void streamAnswer(editor, blobId, {
@@ -407,8 +449,136 @@ export function retryAsk(editor: Editor, blobId: TLShapeId): void {
     messages.pop();
   }
 
-  patchBlob(editor, blobId, { messages, status: "streaming", error: "" });
+  patchBlob(editor, blobId, {
+    messages,
+    status: "streaming",
+    error: "",
+    stopped: -1,
+  });
   void streamAnswer(editor, blobId, payload);
+}
+
+/**
+ * Stop button / Esc while streaming (E1). The in-flight request is aborted;
+ * `streamAnswer` keeps the partial text and returns the blob to idle.
+ */
+export function stopAsk(blobId: string): void {
+  const controller = activeStreams.get(blobId);
+  if (!controller) return;
+  stopRequests.add(blobId);
+  lastPayloads.delete(blobId);
+  controller.abort();
+}
+
+/**
+ * Regenerate the last assistant message in place (E2): same user question, same
+ * cached region image, no duplicate user bubble. Earlier messages stay as-is,
+ * and the regenerated message starts with fresh feedback/More state.
+ */
+export function regenerateAnswer(editor: Editor, blobId: TLShapeId): boolean {
+  if (activeStreams.has(blobId)) return false;
+
+  const shape = editor.getShape<AiBlobShape>(blobId);
+  if (!shape) return false;
+
+  const messages = shape.props.messages;
+  const answerIndex = messages.length - 1;
+  if (answerIndex < 0 || messages[answerIndex].role !== "assistant") return false;
+
+  let userIndex = answerIndex - 1;
+  while (userIndex >= 0 && messages[userIndex].role !== "user") userIndex -= 1;
+  if (userIndex < 0) return false;
+
+  const question = messages[userIndex].content.trim();
+  if (!question) return false;
+
+  const context = buildContext(editor, blobId);
+  const history = messages
+    .slice(0, userIndex)
+    .filter((message) => message.content.trim())
+    .map((message) => ({ role: message.role, content: message.content }));
+
+  const moreOpen = { ...shape.props.moreOpen };
+  delete moreOpen[String(answerIndex)];
+  delete moreOpen[String(userIndex)];
+
+  patchBlob(editor, blobId, {
+    messages: messages.slice(0, answerIndex),
+    status: "streaming",
+    error: "",
+    stopped: -1,
+    moreOpen,
+  });
+
+  void streamAnswer(editor, blobId, {
+    image: shape.props.regionImage || undefined,
+    question,
+    boardSummary: context.boardSummary,
+    ancestorContext: context.ancestorContext,
+    history,
+    regenerate: true,
+  });
+
+  return true;
+}
+
+/**
+ * Replace the last typed question and its assistant reply (E3). Everything
+ * before the question stays; the same cached region image is reused.
+ */
+export function resendEditedQuestion(
+  editor: Editor,
+  blobId: TLShapeId,
+  rawQuestion: string,
+): boolean {
+  if (activeStreams.has(blobId)) return false;
+
+  const shape = editor.getShape<AiBlobShape>(blobId);
+  if (!shape) return false;
+
+  const messages = shape.props.messages;
+  let userIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === "user") {
+      userIndex = index;
+      break;
+    }
+  }
+  if (userIndex < 0) return false;
+
+  const question = rawQuestion.trim();
+  if (!question) return false;
+
+  const context = buildContext(editor, blobId);
+  const prefix = messages.slice(0, userIndex);
+  const history = prefix
+    .filter((message) => message.content.trim())
+    .map((message) => ({ role: message.role, content: message.content }));
+
+  // Drop toggle state for the replaced messages; keep it for what comes before.
+  const moreOpen: Record<string, boolean> = {};
+  for (const [key, value] of Object.entries(shape.props.moreOpen)) {
+    const index = Number(key);
+    if (Number.isFinite(index) && index < userIndex) moreOpen[key] = value;
+  }
+
+  patchBlob(editor, blobId, {
+    messages: [...prefix, { role: "user", content: question }],
+    status: "streaming",
+    error: "",
+    stopped: -1,
+    moreOpen,
+  });
+
+  void streamAnswer(editor, blobId, {
+    image: shape.props.regionImage || undefined,
+    question,
+    boardSummary: context.boardSummary,
+    ancestorContext: context.ancestorContext,
+    history,
+  });
+
+  return true;
 }
 
 /** True while a request is writing into this blob. */
@@ -416,9 +586,10 @@ export function hasActiveStream(blobId: string): boolean {
   return activeStreams.has(blobId);
 }
 
-/** Stop an in-flight request (used when the blob is deleted). */
+/** Stop an in-flight request (used when the blob is deleted or superseded). */
 export function cancelAsk(blobId: string): void {
   activeStreams.get(blobId)?.abort();
   activeStreams.delete(blobId);
   lastPayloads.delete(blobId);
+  stopRequests.delete(blobId);
 }

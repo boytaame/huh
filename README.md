@@ -49,7 +49,8 @@ Copy `.env.example` to `.env.local`. Empty optional values keep the app working.
 | `ADMIN_TOKEN` | for admin | — | Required by `GET /api/feedback` via `x-admin-token` |
 | `NEXT_PUBLIC_POSTHOG_KEY` | no | — | Empty disables analytics entirely |
 | `NEXT_PUBLIC_POSTHOG_HOST` | no | `https://us.i.posthog.com` | PostHog region host |
-| `NEXT_PUBLIC_CONTACT_EMAIL` | no | — | Shown on `/privacy` and `/terms` |
+| `NEXT_PUBLIC_CONTACT_EMAIL` | no | — | Shown on `/privacy` and `/terms`; also the “Report a bug” mailto fallback |
+| `NEXT_PUBLIC_BUG_FORM_URL` | no | — | If set, “Report a bug” opens this URL in a new tab (used as-is) |
 | `NEXT_PUBLIC_TLDRAW_LICENSE_KEY` | no | — | Public by design; empty is fine for a demo |
 | `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN` | no | — | Reserved placeholders; Sentry is not wired up yet |
 
@@ -112,6 +113,12 @@ Quick local check (PowerShell, dev server on port 3000). The 11th rapid request 
 - **First run:** an empty board shows a hint, and a dismissible card offers **Try a sample** (a bundled algebra solution). The card never comes back after a dismissed card or a first successful answer.
 - **Help:** the **?** button (bottom-left) lists the shortcuts and links to `/privacy` and `/terms`.
 - **Feedback:** hover (or tap) an answer for 👍 / 👎. A 👎 opens quick reasons plus an optional note.
+- **Stop:** while an answer streams the Send button becomes **Stop** (or press `Esc` in the input). The partial answer stays with a muted `(stopped)` line and you can type a follow-up immediately. Stopping before the first token leaves no empty bubble.
+- **Regenerate / copy:** the last answer has **Regenerate** (a fresh streamed answer in place, no duplicate question); every answer has **Copy** (readable text, math kept as LaTeX, including the collapsed More part) and **$** (raw Markdown/LaTeX).
+- **Fix a question:** hover your last typed question and click the pencil. Sending replaces that question and its answer in place; `Esc` or **Cancel** leaves the thread unchanged. Chip bubbles are not editable.
+- **Theme:** **System / Light / Dark** in the top bar, stored in this browser. System follows the OS live. Screenshots sent to the model are always exported on a light background for legibility.
+- **Saving:** the top bar shows **Saving…** → **✓ Saved**. If storing fails (for example, storage is full) it shows **Couldn’t save, export your board** with a snapshot download.
+- **Report a bug:** in the **?** popover and on the legal pages. Uses `NEXT_PUBLIC_BUG_FORM_URL` when set, otherwise a prefilled `mailto:` to `NEXT_PUBLIC_CONTACT_EMAIL`; hidden if neither is set. It never includes board content.
 
 Boards autosave locally through tldraw's `persistenceKey` (`ai-canvas-v1`). In tldraw 5 this is browser-local persistence (IndexedDB); there is no server, database, account or sync.
 
@@ -190,8 +197,12 @@ lib/
   lifecycle.ts             delete cascade (blob/region/arrow → thread states)
   threads.ts               palette + thread links
   chips.ts                 quick chips and the default question
-  answer.ts                ---MORE--- split, first line, plain text
-  capture.ts               region PNG capture
+  answer.ts                ---MORE--- split, first line, plain/copy text
+  capture.ts               region PNG capture (always light)
+  theme.ts / themeBoot.ts  System/Light/Dark store + pre-paint boot script
+  autosave.ts              Saving… / Saved / save-failed indicator
+  bugReport.ts             bug-form URL or prefilled mailto (no user content)
+  clipboard.ts             clipboard write with fallback
   placement.ts             collision-free blob placement
 public/
   sample/algebra-steps.svg bundled onboarding sample

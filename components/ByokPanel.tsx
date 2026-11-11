@@ -11,7 +11,7 @@ const PROVIDERS: { id: LLMProvider; label: string }[] = [
 ];
 
 const CONTROL_CLASS =
-  "rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs shadow-sm outline-none transition focus:border-neutral-400";
+  "rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs text-neutral-800 shadow-sm outline-none transition focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:focus:border-neutral-500";
 
 /**
  * Top-right BYOK control. The key is stored only in this browser's
@@ -40,13 +40,13 @@ export function ByokPanel() {
         <>
           <span
             title={`Stored in this browser only. Requests go straight to ${saved.provider}.`}
-            className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-700"
+            className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
           >
             ✓ Your {PROVIDERS.find((p) => p.id === saved.provider)?.label} key
           </span>
           <button
             type="button"
-            className="rounded-lg border border-neutral-200 bg-white px-2 py-1.5 text-xs font-medium text-neutral-500 shadow-sm transition hover:bg-neutral-50 hover:text-neutral-800"
+            className="rounded-lg border border-neutral-200 bg-white px-2 py-1.5 text-xs font-medium text-neutral-500 shadow-sm transition hover:bg-neutral-50 hover:text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
             onClick={() => {
               clearByok();
               setError("");
@@ -89,11 +89,15 @@ export function ByokPanel() {
           <button
             type="button"
             onClick={save}
-            className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-800 shadow-sm transition hover:bg-neutral-50"
+            className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-800 shadow-sm transition hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
           >
             Use my key
           </button>
-          {error && <span className="text-xs font-medium text-red-600">{error}</span>}
+          {error && (
+            <span className="text-xs font-medium text-red-600 dark:text-red-400">
+              {error}
+            </span>
+          )}
         </>
       )}
     </div>

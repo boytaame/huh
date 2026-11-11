@@ -6,11 +6,15 @@ import { Markdown } from "@/components/Markdown";
 import {
   cancelAsk,
   hasActiveStream,
+  regenerateAnswer,
+  resendEditedQuestion,
   retryAsk,
   sendQuestion,
+  stopAsk,
 } from "@/lib/stream";
 import { DEFAULT_QUESTION, QUICK_CHIPS } from "@/lib/chips";
-import { firstLine, splitAnswer } from "@/lib/answer";
+import { copyableMarkdown, copyableText, firstLine, splitAnswer } from "@/lib/answer";
+import { copyToClipboard } from "@/lib/clipboard";
 import { threadColor } from "@/lib/threads";
 import { sendFeedback } from "@/lib/feedback";
 import { track } from "@/lib/analytics";
@@ -103,6 +107,64 @@ function ThumbIcon({ down }: { down: boolean }) {
   );
 }
 
+function StopIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+    </svg>
+  );
+}
+
+function RegenerateIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M20 11a8 8 0 1 0-2.4 5.7M20 4v7h-7"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect
+        x="9"
+        y="9"
+        width="11"
+        height="11"
+        rx="2"
+        stroke="currentColor"
+        strokeWidth="1.7"
+      />
+      <path
+        d="M15 5.5A1.5 1.5 0 0 0 13.5 4H5.5A1.5 1.5 0 0 0 4 5.5v8A1.5 1.5 0 0 0 5.5 15"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3ZM14.5 6.5l3 3"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function Typing() {
   return (
     <span className="ai-typing" aria-label="Thinking">
@@ -119,6 +181,13 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
   const [downForm, setDownForm] = useState<number | null>(null);
   const [downReason, setDownReason] = useState("");
   const [downComment, setDownComment] = useState("");
+  const [copied, setCopied] = useState<{ index: number; mode: "text" | "latex" } | null>(
+    null,
+  );
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const copiedTimer = useRef<number | null>(null);
+  const justStopped = useRef(false);
+  const previousStatus = useRef(shape.props.status);
   const draftRef = useRef("");
   const cardRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -127,7 +196,8 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
   const footerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const { messages, status, collapsed, error, detached, moreOpen } = shape.props;
+  const { messages, status, collapsed, error, detached, moreOpen, stopped } =
+    shape.props;
   const streaming = status === "streaming";
   const composing = status === "composing";
   const accent = threadColor(shape.props.color);
@@ -183,6 +253,29 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
     const body = bodyRef.current;
     if (body) body.scrollTop = body.scrollHeight;
   }, [messages, streaming]);
+
+  // E1: after Stop, put the caret back so a follow-up can be typed at once.
+  useEffect(() => {
+    if (previousStatus.current === "streaming" && status !== "streaming") {
+      if (justStopped.current && !collapsed) {
+        const input = inputRef.current;
+        if (input) {
+          input.focus({ preventScroll: true });
+          const end = input.value.length;
+          input.setSelectionRange(end, end);
+        }
+      }
+      justStopped.current = false;
+    }
+    previousStatus.current = status;
+  }, [status, collapsed]);
+
+  useEffect(
+    () => () => {
+      if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
 
   // Focus the input when the thread is waiting for its first question.
   useEffect(() => {
@@ -311,6 +404,21 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
   const submit = () => {
     if (streaming) return;
     const text = draftRef.current.trim();
+
+    // Edit mode (E3): replace the last question and its answer in place.
+    if (editingIndex !== null) {
+      if (!text) return;
+      if (resendEditedQuestion(editor, shape.id, text)) {
+        track("ask_sent", {
+          via: "custom",
+          isChild: Boolean(shape.props.parentId),
+        });
+        setEditingIndex(null);
+        setDraftBoth("");
+      }
+      return;
+    }
+
     if (!text) {
       // Empty Enter only means something while composing (addendum-2 3.2):
       // a follow-up turn needs actual words.
@@ -319,6 +427,49 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
       return;
     }
     send(text, undefined, { via: "custom" });
+  };
+
+  /** E1: keep the answer so far and return to idle without the error UI. */
+  const stop = () => {
+    justStopped.current = true;
+    stopAsk(shape.id);
+  };
+
+  const startEdit = (index: number) => {
+    if (streaming) return;
+    const message = messages[index];
+    if (!message || message.role !== "user" || message.label || message.hidden) {
+      return;
+    }
+    setEditingIndex(index);
+    setDraftBoth(message.content);
+    requestAnimationFrame(() => {
+      const input = inputRef.current;
+      if (!input) return;
+      input.focus({ preventScroll: true });
+      const end = input.value.length;
+      input.setSelectionRange(end, end);
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingIndex(null);
+    setDraftBoth("");
+  };
+
+  /** E2: "Copy text" keeps math as LaTeX; "Copy LaTeX" keeps raw markdown. */
+  const copyMessage = async (index: number, mode: "text" | "latex") => {
+    const message = messages[index];
+    if (!message || message.role !== "assistant") return;
+    const text =
+      mode === "text"
+        ? copyableText(message.content)
+        : copyableMarkdown(message.content);
+    const ok = await copyToClipboard(text);
+    if (!ok) return;
+    setCopied({ index, mode });
+    if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+    copiedTimer.current = window.setTimeout(() => setCopied(null), 1200);
   };
 
   const patchMessage = (index: number, props: Partial<ChatMessage>) => {
@@ -492,6 +643,16 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
   };
 
   const lastMessage = messages[messages.length - 1];
+
+  // The last typed question is the only editable one (E3).
+  let lastUserIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === "user") {
+      lastUserIndex = index;
+      break;
+    }
+  }
+
   const collapsedPreview =
     lastMessage && lastMessage.role === "assistant"
       ? firstLine(lastMessage.content)
@@ -526,7 +687,7 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
           className="h-1.5 w-1.5 shrink-0 rounded-full"
           style={{ background: accent.accent }}
         />
-        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-500 dark:text-neutral-400">
           AI
         </span>
         {streaming && <Typing />}
@@ -614,9 +775,31 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
               {messages.map((message, index) => {
                 if (message.role === "user") {
                   if (message.hidden) return null;
+                  const editable =
+                    index === lastUserIndex &&
+                    !message.label &&
+                    !streaming &&
+                    editingIndex !== index;
                   return (
-                    <div key={index} className="ai-msg ai-msg-user">
-                      {message.label ?? message.content}
+                    <div key={index} className="ai-msg ai-msg-user-row">
+                      <div className="ai-msg-user">
+                        {message.label ?? message.content}
+                      </div>
+                      {editable ? (
+                        <button
+                          type="button"
+                          title="Edit your last question"
+                          aria-label="Edit your last question"
+                          className="ai-edit-btn"
+                          {...stopAll}
+                          onClick={(event) => {
+                            stopEventPropagation(event);
+                            startEdit(index);
+                          }}
+                        >
+                          <PencilIcon />
+                        </button>
+                      ) : null}
                     </div>
                   );
                 }
@@ -656,6 +839,8 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
 
                     {streaming && isLast && main ? <span className="ai-caret" /> : null}
 
+                    {stopped === index ? <div className="ai-cutoff">(stopped)</div> : null}
+
                     {message.content.trim() && !(streaming && isLast) ? (
                       <div className="ai-feedback">
                         <button
@@ -685,6 +870,63 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
                           }}
                         >
                           <ThumbIcon down />
+                        </button>
+                        {isLast && !streaming ? (
+                          <button
+                            type="button"
+                            title="Regenerate this answer"
+                            aria-label="Regenerate this answer"
+                            className="ai-feedback-btn"
+                            {...stopAll}
+                            onClick={(event) => {
+                              stopEventPropagation(event);
+                              regenerateAnswer(editor, shape.id);
+                            }}
+                          >
+                            <RegenerateIcon />
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          title="Copy text"
+                          aria-label="Copy text"
+                          className={`ai-feedback-btn${
+                            copied?.index === index && copied.mode === "text"
+                              ? " ai-feedback-btn-wide"
+                              : ""
+                          }`}
+                          {...stopAll}
+                          onClick={(event) => {
+                            stopEventPropagation(event);
+                            void copyMessage(index, "text");
+                          }}
+                        >
+                          {copied?.index === index && copied.mode === "text" ? (
+                            <span className="ai-copied">Copied</span>
+                          ) : (
+                            <CopyIcon />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          title="Copy LaTeX/Markdown"
+                          aria-label="Copy LaTeX or Markdown"
+                          className={`ai-feedback-btn${
+                            copied?.index === index && copied.mode === "latex"
+                              ? " ai-feedback-btn-wide"
+                              : ""
+                          }`}
+                          {...stopAll}
+                          onClick={(event) => {
+                            stopEventPropagation(event);
+                            void copyMessage(index, "latex");
+                          }}
+                        >
+                          {copied?.index === index && copied.mode === "latex" ? (
+                            <span className="ai-copied">Copied</span>
+                          ) : (
+                            <span className="ai-latex-glyph">$</span>
+                          )}
                         </button>
                       </div>
                     ) : null}
@@ -760,14 +1002,14 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
               ) : null}
 
               {status === "error" && (
-                <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-2 text-[12px] leading-relaxed text-red-700">
+                <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-2 text-[12px] leading-relaxed text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
                   <div className="font-medium">Couldn’t get an answer</div>
-                  <div className="mt-0.5 break-words text-red-600/90">
+                  <div className="mt-0.5 break-words text-red-600/90 dark:text-red-300">
                     {error || "Something went wrong. Try again."}
                   </div>
                   <button
                     type="button"
-                    className="mt-1.5 rounded border border-red-300 bg-white px-2 py-0.5 text-[11.5px] font-medium text-red-700 transition hover:bg-red-100"
+                    className="mt-1.5 rounded border border-red-300 bg-white px-2 py-0.5 text-[11.5px] font-medium text-red-700 transition hover:bg-red-100 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200 dark:hover:bg-red-900/50"
                     {...stopAll}
                     onClick={(event) => {
                       stopEventPropagation(event);
@@ -814,6 +1056,23 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
               </div>
             )}
 
+            {editingIndex !== null ? (
+              <div className="ai-edit-note">
+                <span>Editing your last question</span>
+                <button
+                  type="button"
+                  className="ai-edit-cancel"
+                  {...stopAll}
+                  onClick={(event) => {
+                    stopEventPropagation(event);
+                    cancelEdit();
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : null}
+
             <form
               className="flex items-end gap-1.5"
               onSubmit={(event) => {
@@ -829,13 +1088,26 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
                 onChange={(event) => setDraftBoth(event.target.value)}
                 onKeyDown={(event) => {
                   stopEventPropagation(event);
+                  if (event.key === "Escape") {
+                    if (streaming) {
+                      event.preventDefault();
+                      stop();
+                      return;
+                    }
+                    if (editingIndex !== null) {
+                      event.preventDefault();
+                      cancelEdit();
+                      return;
+                    }
+                    if (composing) {
+                      event.preventDefault();
+                      cancelComposing();
+                    }
+                    return;
+                  }
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
                     submit();
-                  }
-                  if (event.key === "Escape" && composing) {
-                    event.preventDefault();
-                    cancelComposing();
                   }
                 }}
                 onKeyUp={stopEventPropagation}
@@ -852,17 +1124,37 @@ export function AiBlob({ shape }: { shape: AiBlobShape }) {
                       ? "Ask anything, or press Enter"
                       : "Ask a follow-up…"
                 }
-                disabled={streaming}
+                // Read-only (not disabled) so Esc still reaches the input
+                // while an answer is streaming (E1).
+                readOnly={streaming}
                 aria-label="Question"
+                aria-readonly={streaming}
               />
-              <button
-                type="submit"
-                aria-label="Send question"
-                disabled={streaming || !draft.trim()}
-                className="ai-blob-send"
-              >
-                <SendIcon />
-              </button>
+              {streaming ? (
+                <button
+                  type="button"
+                  aria-label="Stop answer"
+                  title="Stop (Esc)"
+                  className="ai-blob-stop"
+                  {...stopAll}
+                  onClick={(event) => {
+                    stopEventPropagation(event);
+                    stop();
+                  }}
+                >
+                  <StopIcon />
+                  <span>Stop</span>
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  aria-label="Send question"
+                  disabled={!draft.trim()}
+                  className="ai-blob-send"
+                >
+                  <SendIcon />
+                </button>
+              )}
             </form>
 
             {composing ? (
