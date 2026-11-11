@@ -81,3 +81,37 @@ after setting a working key.
 - PostHog Live Events with a real key.
 - Visual inspection was done through the accessibility tree and computed styles; no
   screenshot pass was requested.
+
+## Stress test (local dev server, November 11, 2026)
+
+| Scenario | Result |
+|---|---|
+| 30 concurrent page loads | 30×200, slowest 2.1s |
+| 100 concurrent malformed asks | 100×400, no crash |
+| Malformed JSON / 4.2 MB image / 21-message history | 400 / 413 / 413 |
+| 30 concurrent asks from one IP (limit 10/min) | 10 allowed, 20×429 `rate_limited` |
+| 35 concurrent asks, same `huh_cid`, rotating IPs (limit 30/day) | 30 allowed, 5×429 `rate_limited` |
+| 65 concurrent feedback posts (limit 60/day) | 60×200, 5×429 |
+| Health after all bursts | `/` 200 in 0.11s, `/privacy` 200, server still listening |
+
+Allowed asks returned 502 only because the provider was unreachable locally. The limits and
+body validation held under concurrency and the server stayed responsive. This is a dev-mode
+run; production on Vercel uses separate instances, so Upstash is still required for shared
+counters.
+
+## Stress test (local dev server, November 11, 2026)
+
+| Scenario | Result |
+|---|---|
+| 30 concurrent page loads | 30×200, slowest 2.1s |
+| 100 concurrent malformed asks | 100×400, no crash |
+| Malformed JSON / 4.2 MB image / 21-message history | 400 / 413 / 413 |
+| 30 concurrent asks from one IP (limit 10/min) | 10 allowed, 20×429 `rate_limited` |
+| 35 concurrent asks, same `huh_cid`, rotating IPs (limit 30/day) | 30 allowed, 5×429 `rate_limited` |
+| 65 concurrent feedback posts (limit 60/day) | 60×200, 5×429 |
+| Health after all bursts | `/` 200 in 0.11s, `/privacy` 200, server still listening |
+
+Allowed asks returned 502 only because the provider was unreachable locally. Rate limits and
+body validation held under concurrency and the server stayed responsive. This is a dev-mode
+run; production on Vercel uses separate instances, so Upstash is still required for shared
+counters.
