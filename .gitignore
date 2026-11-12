@@ -10,10 +10,10 @@ build
 .env.*.local
 next-env.d.ts
 *.tsbuildinfo
-spec-addendum-1.md
-spec-addendum-2.md
-spec.md
 .vercel
 *.tsbuildinfo
 Thumbs.db
 Desktop.ini
+
+# Local planning and report files (not pushed)
+REPORTS/

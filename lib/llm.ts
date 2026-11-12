@@ -8,7 +8,7 @@ export const PROMPT_VERSION = "v2.2";
  * deliberately small: this is a cost-protection ceiling, and answers are
  * meant to be short and gap-first anyway.
  */
-export const MAX_OUTPUT_TOKENS = 400;
+export const MAX_OUTPUT_TOKENS = 20000;
 
 export const DEFAULT_MODELS = {
   gemini: "gemini-3.6-flash",
